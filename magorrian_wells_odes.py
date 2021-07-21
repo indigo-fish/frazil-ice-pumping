@@ -33,11 +33,11 @@ S_s = 0 #salt concentration in ice
 #I am choosing theta arbitrarily
 theta = 0.1
 sin_theta = math.sin(theta)
-S_a = 35 #ambient water salinity
+S_a = 34 #ambient water salinity
 #I don't know rho_a, rho_l, rho_s
-rho_a = 1.0236
-rho_l = 1.0236
-rho_s = 0.9168
+rho_a = 1023.6
+rho_l = 1023.6
+rho_s = 916.8
 #T_a is supposed to vary
 T_a = 0
 
@@ -46,10 +46,10 @@ functions which produce various other (generally non-constant)
 values used in the system of differential equations
 """
 def get_T(y):
-    return T_m + tau * (get_S(y) - S_s) + y[3] / y[0]
+    return T_m - tau * (get_S(y) - S_s) + y[3] / y[0]
 
 def get_T_L(S):
-    return T_m + lamda - tau * (S - S_s)
+    return T_m - tau * (S - S_s)
 
 def get_S(y):
     temp = beta_s * S_a + beta_T * (T_m + tau * S_s + y[3] / y[0]) - y[2] / y[0]
@@ -73,8 +73,11 @@ def get_c(y):
 
 def get_M(y):
     a = get_a(y)
+    print(a)
     b = get_b(y)
+    print(b)
     c = get_c(y)
+    print(c)
     return (math.sqrt(b ** 2 - 4 * a * c) - b) / (2 * a)
 
 def get_U(y):
@@ -176,7 +179,14 @@ X0 = 0.01
 E0 = E_0 * sin_theta
 
 #solves analytic system of equations for M, U, T, S, T_i, S_i
-M0, U0, T0, S0, T_i0, S_i0 = fsolve(solve_init_system, [.0005 * E0, .01, T_a, S_a, 10000, S_a], args = (E0, X0))
+M0, U0, T0, S0, T_i0, S_i0 = fsolve(solve_init_system, [.0005 * E0, .01, T_a, S_a, T_a, S_a], args = (E0, X0))
+
+print("M0 " + str(M0))
+print("U0 " + str(U0))
+print("T0 " + str(T0))
+print("S0 " + str(S0))
+print("T_i0 " + str(T_i0))
+print("S_i0 " + str(S_i0))
 
 #converts solved-for values into initial values in y
 H0 = 2 / 3 * (E0 + M0) * X0
@@ -193,7 +203,7 @@ y0 = [y0_0, y0_1, y0_2, y0_3]
 
 #defines distances along slope to record results
 s = np.linspace(0, 100)
-y = odeint(derivative, y0, s)
+#y = odeint(derivative, y0, s)
 
 #functions for calculating analytic values at locations other than initial point
 def analytic_H(E, M, X):
@@ -219,18 +229,35 @@ def analytic_values(X):
     del_rho = analytic_del_rho(E0, M0, X)
     return [H, U, del_T, del_rho]
 
+H_vals = []
+U_vals = []
+del_T_vals = []
+del_rho_vals = []
 #evaluates analytic functions at all points reported for differential equation solutions
-analytic_y = list(map(analytic_values, s))
+for s0 in s:
+    an_val = analytic_values(s0)
+    H_vals.append(an_val[0])
+    U_vals.append(an_val[1])
+    del_T_vals.append(an_val[2])
+    del_rho_vals.append(an_val[3])
+analytic_y = [H_vals, U_vals, del_T_vals, del_rho_vals]
+labels = ["H", "U", "del_T", "del_rho"]
+
+array_y = np.array(analytic_y)
 
 #plots first differential equations and second analytic solutions
 """
 currently there is barely any agreement at all
 between the two solutions, which should agree
 """
-plt.figure(1)
-plt.plot(s, y)
-plt.show()
+#plt.figure(1)
+#plt.plot(s, y)
+#plt.show()
 
-plt.figure(2)
-plt.plot(s, analytic_y)
-plt.show()
+fig_num = 2
+for y_line, label in zip(array_y, labels):
+    plt.figure(fig_num)
+    plt.plot(s, y_line, label=label)
+    plt.legend()
+    plt.show()
+    fig_num += 1
