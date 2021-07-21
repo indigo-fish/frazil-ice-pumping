@@ -15,6 +15,7 @@ defines all the constants that will be
 used throughout various functions and formulas
 """
 
+
 T_s = -5 #background ice temperature
 E_0 = 3.6e-2 #max entrainment coefficient
 C_d = 2.5e-3 #drag coefficient
@@ -37,8 +38,34 @@ S_a = 35 #ambient water salinity
 #I don't know rho_a, rho_l, rho_s
 rho_s = 916.8
 #T_a is supposed to vary
-T_a = 0
+T_a = 0 #ambient water temperature
 
+"""
+#simplified constants for testing code
+T_s = 0 #background ice temperature
+E_0 = .1 #max entrainment coefficient
+C_d = 1 #drag coefficient
+St = 1 #heat transfer coefficient
+St_m = 1 #salt transfer coefficient
+tau = 0 #seawater freezing point slope
+T_m = 0.5 #freezing point offset
+lamda = 0 #depth dependence of freezing point
+L = 1 #latent heat of fusion for ice
+c_s = 1 #specific heat capacity for ice
+c_l = 1 #specific heat capacity for seawater
+beta_s = 1 #haline contraction coefficient
+beta_T = 1 #thermal expansion coefficient
+g = 1 #gravitational acceleration
+S_s = 0 #salt concentration in ice
+#I am choosing theta arbitrarily
+theta = 0.1
+sin_theta = math.sin(theta)
+S_a = 35 #ambient water salinity
+#I don't know rho_a, rho_l, rho_s
+rho_s = 900
+#T_a is supposed to vary
+T_a = 0 #ambient water temperature
+"""
 
 rho_a = 1000 / (1 + beta_T * (T_a - 4) - beta_s * S_a)
 rho_l = rho_a
@@ -52,14 +79,16 @@ functions which produce various other (generally non-constant)
 values used in the system of differential equations
 """
 def get_T(y):
-    return T_m - tau * (get_S(y) - S_s) + y[3] / y[0]
+    result = T_m - tau * (get_S(y) - S_s) + y[3] / y[0]
+    return result
 
 def get_T_L(S):
     return T_m - tau * (S - S_s)
 
 def get_S(y):
-    temp = beta_s * S_a + beta_T * (T_m + tau * S_s + y[3] / y[0]) - y[2] / y[0]
-    return temp / (beta_s + beta_T * tau)
+    temp = beta_s * S_a + beta_T * (T_m + tau * S_s + y[3] / y[0]) - y[2] / y[0] / rho_l
+    result = temp / (beta_s + beta_T * tau)
+    return result
 
 def get_a(y):
     T_L_S_s = get_T_L(S_s)
@@ -79,6 +108,7 @@ def get_c(y):
 
 def get_M(y):
     
+    
     a = get_a(y)
     b = get_b(y)
     c = get_c(y)
@@ -93,7 +123,8 @@ def get_M(y):
     absolute value because otherwise going negative
     """
     result = -5.16868643297295e-9*S + 6.33146894626323e-6*T + 1.60267782163291e-5*math.sqrt(1.0400828070772e-7*S**2 - 0.000254813368152568*S*T - 0.0881732080032609*S + 0.156068949864962*T**2 - 0.790111257646571*T + 1) + 1.49732217836709e-5
-    print(result)
+    
+    #result = (- b + math.sqrt(b ** 2 - 4 * a * c)) / (2 * a)
     return result
 
 def get_U(y):
@@ -156,9 +187,13 @@ def dy3_ds(y):
     U = get_U(y)
     del_T_a = get_del_T_a()
     M = get_M(y)
-    T_eff = get_T_eff(get_T_i(y))
-    S_i = get_S_i(y)
-    return del_T_a * E * abs(U) + M * abs(U) * (T_eff - T_m + tau * S_i) - lamda * sin_theta * y[0]
+    #T_eff = get_T_eff(get_T_i(y))
+    T_L_S_s = get_T_L(S_s)
+    T_eff = - del_T_a * E / M + T_L_S_s
+    derivative = del_T_a * E * abs(U) + M * abs(U) * (T_eff - T_L_S_s) - lamda * sin_theta * y[0]
+    print("derivative of T")
+    print(derivative)
+    return derivative
 
 """
 re-expresses system of differential equations as a vector
@@ -178,6 +213,8 @@ comes up with initial values using analytical solutions
 system of equations which is solved to find M, U, T, S, T_i and S_i
 for calculation of initial y values
 """
+
+
 def solve_init_system(vect, E, X):
     M, U, T, S, T_i, S_i = vect
     func1 = beta_T * (T - T_a) - beta_s * (S - S_a) + M / (E + M) * (beta_s * (S_a - S_s) - beta_T * (T_a - get_T_eff(T_i)))
@@ -218,7 +255,7 @@ y0_3 = H0 * U0 * del_T0
 y0 = [y0_0, y0_1, y0_2, y0_3]
 
 #defines distances along slope to record results
-s = np.linspace(0, 100)
+s = np.linspace(0, 5)
 y = odeint(derivative, y0, s)
 
 #functions for calculating analytic values at locations other than initial point
@@ -266,13 +303,21 @@ array_y = np.array(analytic_y)
 currently there is barely any agreement at all
 between the two solutions, which should agree
 """
+
 fig_num = 1
+"""
 for y_line, label in zip(y, labels):
     plt.figure(fig_num)
     plt.plot(s, y_line, label=label)
     plt.legend()
     plt.show()
     fig_num += 1
+"""
+
+plt.figure(fig_num)
+plt.plot(s, y)
+plt.show()
+fig_num += 1
 
 for y_line, label in zip(array_y, labels):
     plt.figure(fig_num)
