@@ -33,13 +33,19 @@ S_s = 0 #salt concentration in ice
 #I am choosing theta arbitrarily
 theta = 0.1
 sin_theta = math.sin(theta)
-S_a = 34 #ambient water salinity
+S_a = 35 #ambient water salinity
 #I don't know rho_a, rho_l, rho_s
-rho_a = 1023.6
-rho_l = 1023.6
 rho_s = 916.8
 #T_a is supposed to vary
 T_a = 0
+
+
+rho_a = 1000 / (1 + beta_T * (T_a - 4) - beta_s * S_a)
+rho_l = rho_a
+"""
+rho_l = 1024
+rho_a = 1000 + rho_l * (beta_s * S_a + beta_T * (4 - T_a))
+"""
 
 """
 functions which produce various other (generally non-constant)
@@ -72,13 +78,23 @@ def get_c(y):
     return - St_m * St * c_l / L * (T - T_L_S)
 
 def get_M(y):
+    
     a = get_a(y)
-    print(a)
     b = get_b(y)
-    print(b)
     c = get_c(y)
-    print(c)
-    return (math.sqrt(b ** 2 - 4 * a * c) - b) / (2 * a)
+    
+    S = get_S(y)
+    T = get_T(y)
+    
+    discrim = 1.0400828070772e-7*S**2 - 0.000254813368152568*S*T - 0.0881732080032609*S + 0.156068949864962*T**2 - 0.790111257646571*T + 1
+    print(str(discrim) + " " + str(b**2 - 4*a*c))
+    
+    """
+    absolute value because otherwise going negative
+    """
+    result = -5.16868643297295e-9*S + 6.33146894626323e-6*T + 1.60267782163291e-5*math.sqrt(1.0400828070772e-7*S**2 - 0.000254813368152568*S*T - 0.0881732080032609*S + 0.156068949864962*T**2 - 0.790111257646571*T + 1) + 1.49732217836709e-5
+    print(result)
+    return result
 
 def get_U(y):
     return y[1] / y[0]
@@ -179,7 +195,7 @@ X0 = 0.01
 E0 = E_0 * sin_theta
 
 #solves analytic system of equations for M, U, T, S, T_i, S_i
-M0, U0, T0, S0, T_i0, S_i0 = fsolve(solve_init_system, [.0005 * E0, .01, T_a, S_a, T_a, S_a], args = (E0, X0))
+M0, U0, T0, S0, T_i0, S_i0 = fsolve(solve_init_system, [E0 * St / (E0 + St) * c_l * get_del_T_a() / L, .001, T_a, S_a, T_a, S_a], args = (E0, X0))
 
 print("M0 " + str(M0))
 print("U0 " + str(U0))
@@ -203,17 +219,17 @@ y0 = [y0_0, y0_1, y0_2, y0_3]
 
 #defines distances along slope to record results
 s = np.linspace(0, 100)
-#y = odeint(derivative, y0, s)
+y = odeint(derivative, y0, s)
 
 #functions for calculating analytic values at locations other than initial point
 def analytic_H(E, M, X):
     return 2 / 3 * (E + M) * X
 
 """
-again using absolute value in square root due to negative M
+not currently using absolute value in square root due to negative M
 """
 def analytic_U(E, M, X):
-    return math.sqrt(2 * (E + M) / (3 * C_d + 4 * (E + M))) * math.sqrt(abs(M / (E + M) * (beta_s * (S_a - S_s) - beta_T * (T_a - get_T_eff(T_i0))) * g * sin_theta * X))
+    return math.sqrt(2 * (E + M) / (3 * C_d + 4 * (E + M))) * math.sqrt(M / (E + M) * (beta_s * (S_a - S_s) - beta_T * (T_a - get_T_eff(T_i0))) * g * sin_theta * X)
 
 def analytic_del_T(E, M, X):
     return (get_del_T_a() * E + (T_i0 - get_T_L(S_s)) * M) / (E + M)
@@ -250,11 +266,14 @@ array_y = np.array(analytic_y)
 currently there is barely any agreement at all
 between the two solutions, which should agree
 """
-#plt.figure(1)
-#plt.plot(s, y)
-#plt.show()
+fig_num = 1
+for y_line, label in zip(y, labels):
+    plt.figure(fig_num)
+    plt.plot(s, y_line, label=label)
+    plt.legend()
+    plt.show()
+    fig_num += 1
 
-fig_num = 2
 for y_line, label in zip(array_y, labels):
     plt.figure(fig_num)
     plt.plot(s, y_line, label=label)
