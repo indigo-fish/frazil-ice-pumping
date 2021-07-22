@@ -38,7 +38,7 @@ S_a = 35 #ambient water salinity
 #I don't know rho_a, rho_l, rho_s
 rho_s = 916.8
 #T_a is supposed to vary
-T_a = -.5 #ambient water temperature
+T_a = 0 #ambient water temperature
 
 """
 #simplified constants for testing code
@@ -252,6 +252,8 @@ M_vals = []
 i = 0
 while i < 40:
     M0, T0, S0 = fsolve(repeat_init_solve, [M0, T0, S0], args = (E0, X0, U0, T_i0, S_i0))
+    #converts output of system of equations into other values
+    #some of which are in turn inputs in next iteration of system of equations
     H0 = 2 / 3 * (E0 + M0) * X0
     del_T0 = T0 - get_T_L(S0)
     del_rho0 = - rho_l * (beta_s * (S0 - S_a) - beta_T * (T0 - T_a))
@@ -263,6 +265,27 @@ while i < 40:
     U_vals.append(U0)
     M_vals.append(M0)
     i += 1
+
+#converts values into format most useful for differential equations
+y0_0 = H0 * U0
+y0_1 = H0 * U0 ** 2
+y0_2 = H0 * U0 * del_rho0 / rho_l
+y0_3 = H0 * U0 * del_T0
+
+
+#puts these initial values in a vector for solving equations
+y0 = [y0_0, y0_1, y0_2, y0_3]
+print(y0)
+
+"""
+checks to see if the system of equations was actually solved,
+ie the initial conditions match the analytic solutions
+according to the values it's spitting out, yes, but
+I can see that that's not true!
+"""
+print(get_M(T0, S0) - M0)
+print(M0 / (E0 + M0) * get_rho_eff(y0) - del_rho0)
+print((get_del_T_a() * E0 + get_T_eff(T_i0) * M0) / (E0 + M0) - del_T0)
 
 # print("del_T0 " + str(del_T0))
 # print("del_rho0 " + str(del_rho0))
@@ -308,21 +331,6 @@ for s0 in s:
 labels_analytic = ["H_analytic", "U_analytic", "del_T_analytic", "del_rho_analytic"]
 
 array_analytic = np.array([H_analytic, U_analytic, del_T_analytic, del_rho_analytic])
-
-#converts solved-for values into initial values in y
-H0 = 2 / 3 * (E0 + M0) * X0
-del_T0 = T0 - get_T_L(S0)
-del_rho0 = - rho_l * (beta_s * (S0 - S_a) - beta_T * (T0 - T_a))
-U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
-
-y0_0 = H0 * U0
-y0_1 = H0 * U0 ** 2
-y0_2 = H0 * U0 * del_rho0 / rho_l
-y0_3 = H0 * U0 * del_T0
-
-#puts these initial values in a vector for solving equations
-y0 = [y0_0, y0_1, y0_2, y0_3]
-print(y0)
 
 #defines distances along slope to record results
 y = odeint(derivative, y0, s)
