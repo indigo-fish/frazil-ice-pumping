@@ -23,7 +23,7 @@ St = 1.1e-3 #heat transfer coefficient
 St_m = 3.1e-5 #salt transfer coefficient
 tau = 5.73e-2 #seawater freezing point slope
 T_m = 8.32e-2 #freezing point offset
-lamda = 0 #depth dependence of freezing point
+lamda = 7.61e-4 #depth dependence of freezing point
 L = 3.35e5 #latent heat of fusion for ice
 c_s = 2.009e3 #specific heat capacity for ice
 c_l = 3.974e3 #specific heat capacity for seawater
@@ -38,7 +38,8 @@ S_a = 35 #ambient water salinity
 #I don't know rho_a, rho_l, rho_s
 rho_s = 916.8
 #T_a is supposed to vary
-T_a = 0 #ambient water temperature
+T_a = 1 #ambient water temperature
+D = 200 #start depth
 
 #provides linear structure of density
 rho_l = 1024
@@ -49,36 +50,36 @@ rho_a = 1000 + rho_l * (beta_s * S_a + beta_T * (4 - T_a))
 functions which produce various other (generally non-constant)
 values used in the system of differential equations
 """
-def get_T(y):
-    result = T_m - tau * (get_S(y) - S_s) + y[3] / y[0]
+def get_T(y, z):
+    result = T_m + lamda * z - tau * (get_S(y, z) - S_s) + y[3] / y[0]
     return result
 
-def get_T_L(S):
-    return T_m - tau * (S - S_s)
+def get_T_L(S, z):
+    return T_m + lamda * z - tau * (S - S_s)
 
-def get_S(y):
-    temp = beta_s * S_a + beta_T * (T_m + tau * S_s + y[3] / y[0]) - y[2] / y[0]
+def get_S(y, z):
+    temp = beta_s * S_a + beta_T * (T_m + lamda * z + tau * S_s + y[3] / y[0]) - y[2] / y[0]
     result = temp / (beta_s + beta_T * tau)
     return result
 
-def get_a():
-    T_L_S_s = get_T_L(S_s)
+def get_a(z):
+    T_L_S_s = get_T_L(S_s, z)
     return 1 - c_s / L * (T_s - T_L_S_s)
 
-def get_b(T, S):
-    T_L_S = get_T_L(S)
-    T_L_S_s = get_T_L(S_s)
+def get_b(T, S, z):
+    T_L_S = get_T_L(S, z)
+    T_L_S_s = get_T_L(S_s, z)
     return St_m * (1 - c_s / L * (T_s - T_L_S) - St * c_l / L * (T - T_L_S_s))
 
-def get_c(T, S):
-    T_L_S = get_T_L(S)
+def get_c(T, S, z):
+    T_L_S = get_T_L(S, z)
     return - St_m * St * c_l / L * (T - T_L_S)
 
-def get_M(T, S):
+def get_M(T, S, z):
     
-    a = get_a()
-    b = get_b(T, S)
-    c = get_c(T, S)
+    a = get_a(z)
+    b = get_b(T, S, z)
+    c = get_c(T, S, z)
     result = (- b + math.sqrt(b ** 2 - 4 * a * c)) / (2 * a)
     return result
 
@@ -91,70 +92,71 @@ def get_H(y):
 def get_del_rho(y):
     return rho_l * y[2] / y[0]
 
-def get_T_i(y):
-    T_i, S_i = fsolve(solve_system, [get_T_L(S_a), S_a], args = (get_M(get_T(y), get_S(y)), get_U(y), get_T(y), get_S(y)))
+def get_T_i(y, z):
+    T_i, S_i = fsolve(solve_system, [get_T_L(S_a, z), S_a], args = (get_M(get_T(y, z), get_S(y, z), z), get_U(y), get_T(y, z), get_S(y, z), z))
     return T_i
 
-def get_S_i(y):
-    T_i, S_i = fsolve(solve_system, [get_T_L(S_a), S_a], args = (get_M(get_T(y), get_S(y)), get_U(y), get_T(y), get_S(y)))
+def get_S_i(y, z):
+    T_i, S_i = fsolve(solve_system, [get_T_L(S_a, z), S_a], args = (get_M(get_T(y, z), get_S(y, z), z), get_U(y), get_T(y, z), get_S(y, z), z))
     return S_i
 
 def get_T_eff(T_i):
     return T_i - L / c_l + c_s / c_l * (T_s - T_i)
 
-def get_rho_eff(y):
-    return rho_l * (beta_s * (S_a - S_s) - beta_T * (T_a - get_T_eff(get_T_i(y))))
+def get_rho_eff(y, z):
+    return rho_l * (beta_s * (S_a - S_s) - beta_T * (T_a - get_T_eff(get_T_i(y, z))))
 
-def get_del_T_a():
-    return T_a - get_T_L(S_a)
+def get_del_T_a(z):
+    return T_a - get_T_L(S_a, z)
 
 #system of equations which is solved to find T_i and S_i, given M, U, T and S
-def solve_system(vect, M, U, T, S):
+def solve_system(vect, M, U, T, S, z):
     T_i, S_i = vect
     func1 = rho_l * L * M * abs(U) + rho_s * c_s * (T_i - T_s) * M * abs(U) - rho_l * c_l * St * abs(U) * (T - T_i)
-    func2 = get_T_L(S_i) - T_i
+    func2 = get_T_L(S_i, z) - T_i
     return [func1, func2]
 
 """
 defines each of the linear differential equations
 in terms of the variables which make it easier to solve
 """
-def dy0_ds(y):
+def dy0_ds(y, z):
     E = E_0 * sin_theta
     U = get_U(y)
-    M = get_M(get_T(y), get_S(y))
+    M = get_M(get_T(y, z), get_S(y, z), z)
     return E * abs(U) + M * abs(U)
 
-def dy1_ds(y):
+def dy1_ds(y, z):
     H = get_H(y)
     U = get_U(y)
     delta_rho = get_del_rho(y)
     return g * sin_theta * H * delta_rho / rho_l - C_d * U * abs(U)
 
-def dy2_ds(y):
+def dy2_ds(y, z):
     U = get_U(y)
-    del_rho_eff = get_rho_eff(y)
-    M = get_M(get_T(y), get_S(y))
+    del_rho_eff = get_rho_eff(y, z)
+    M = get_M(get_T(y, z), get_S(y, z), z)
     return del_rho_eff / rho_l * M * abs(U)
 
-def dy3_ds(y):
+def dy3_ds(y, z):
     E = E_0 * sin_theta
     U = get_U(y)
-    del_T_a = get_del_T_a()
-    M = get_M(get_T(y), get_S(y))
-    T_eff = get_T_eff(get_T_i(y))
-    T_L_S_s = get_T_L(S_s)
+    del_T_a = get_del_T_a(z)
+    M = get_M(get_T(y, z), get_S(y, z), z)
+    T_eff = get_T_eff(get_T_i(y, z))
+    T_L_S_s = get_T_L(S_s, z)
     derivative = del_T_a * E * abs(U) + M * abs(U) * (T_eff - T_L_S_s) - lamda * sin_theta * y[0]
     return derivative
 
 """
 re-expresses system of differential equations as a vector
 """
-def derivative(y, t):
-    dy0 = dy0_ds(y)
-    dy1 = dy1_ds(y)
-    dy2 = dy2_ds(y)
-    dy3 = dy3_ds(y)
+def derivative(y, s):
+    z = D + s * sin_theta
+    dy0 = dy0_ds(y, z)
+    dy1 = dy1_ds(y, z)
+    dy2 = dy2_ds(y, z)
+    dy3 = dy3_ds(y, z)
     return [dy0, dy1, dy2, dy3]
 
 """
@@ -166,44 +168,51 @@ system of equations which is solved to find M, T, S
 (under assumption that M is small, so do not need to calculate T_i, S_i
 for calculation of initial y values
 """
-def solve_init_system(vect, E):
+def solve_init_system(vect, E, z):
     M, T, S = vect
     #func1 is equation 25 in Magorrian Wells
-    func1 = get_M(T, S) - M
+    func1 = get_M(T, S, z) - M
     #func2 is small-M version of equation 29 in Magorrian Wells
-    func2 = T - T_m - tau * (S - S_s) - get_del_T_a() * E / (E + M)
+    func2 = T - T_m - lamda * z + tau * (S - S_s) - get_del_T_a(z) * E / (E + M)
     #func3 is small-M version of equation 30 in Magorrian Wells
     func3 = beta_s * (S - S_a) - beta_T * (T - T_a)
     return [func1, func2, func3]
 
 X0 = 0.01
 E0 = E_0 * sin_theta
+z0 = D + X0 * sin_theta
 
 #solves (simplified) analytic system of equations for M, T, S
-M0, T0, S0 = fsolve(solve_init_system, [E0 * St / (E0 + St) * c_l * get_del_T_a() / L, T_a, S_a], args = (E0))
+M0, T0, S0 = fsolve(solve_init_system, [E0 * St / (E0 + St) * c_l * get_del_T_a(z0) / L, T_a, S_a], args = (E0, z0))
 
 """
 converts M, T, S values into values for U, rho, T_i, S_i
 allowing use of full versions of equations 29, 30
 """
 H0 = 2 / 3 * (E0 + M0) * X0
-del_T0 = T0 - get_T_L(S0)
+del_T0 = T0 - get_T_L(S0, z0)
 del_rho0 = - rho_l * (beta_s * (S0 - S_a) - beta_T * (T0 - T_a))
+print(S0)
+print(T0)
+print(del_rho0)
+print(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0))))
+print(del_rho0 / rho_l * g * sin_theta * X0)
 U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
-T_i0, S_i0 = fsolve(solve_system, [get_T_L(S_a), S_a], args = (M0, U0, T0, S0))
+T_i0, S_i0 = fsolve(solve_system, [get_T_L(S_a, z0), S_a], args = (M0, U0, T0, S0, z0))
 
 def repeat_init_solve(vect, E, X, U, T_i, S_i):
+    z = D + X * sin_theta
     T_eff = get_T_eff(T_i)
-    T_L_S_s = get_T_L(S_s)
+    T_L_S_s = get_T_L(S_s, z)
     del_T_eff = T_eff - T_L_S_s
     del_rho_eff = rho_l * (beta_s * (S_a - S_s) - beta_T * (T_a - T_eff))
     M, T, S = vect
-    del_T = T - get_T_L(S)
+    del_T = T - get_T_L(S, z)
     del_rho = -1 * rho_l * (beta_s * (S - S_a) - beta_T * (T - T_a))
     #func1 is equation 25 in Magorrian Wells
-    func1 = get_M(T, S) - M
+    func1 = get_M(T, S, z) - M
     #func2 is equation 29 in Magorrian Wells
-    func2 = (E * get_del_T_a() + del_T_eff * M) / (E + M) - del_T
+    func2 = (E * get_del_T_a(z) + del_T_eff * M) / (E + M) - del_T
     #func3 is equation 30 in Magorrian Wells
     func3 = M / (E + M) * del_rho_eff - del_rho
     return [func1, func2, func3]
@@ -223,12 +232,12 @@ while i < 40:
     #converts output of system of equations into other values
     #some of which are in turn inputs in next iteration of system of equations
     H0 = 2 / 3 * (E0 + M0) * X0
-    del_T0 = T0 - get_T_L(S0)
+    del_T0 = T0 - get_T_L(S0, z0)
     del_rho0 = - rho_l * (beta_s * (S0 - S_a) - beta_T * (T0 - T_a))
     T_eff = get_T_eff(T_i0)
     rho_eff = rho_l * (beta_s * (S_a - S_s) - beta_T * (T_a - get_T_eff(T_i0)))
     U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
-    T_i0, S_i0 = fsolve(solve_system, [get_T_L(S_a), S_a], args = (M0, U0, T0, S0))
+    T_i0, S_i0 = fsolve(solve_system, [get_T_L(S_a, z0), S_a], args = (M0, U0, T0, S0, z0))
     i_vals.append(i)
     del_T_vals.append(del_T0)
     del_rho_vals.append(del_rho0)
@@ -267,7 +276,8 @@ def analytic_U(E, M, X, T_i):
     return math.sqrt(2 * (E + M) / (3 * C_d + 4 * (E + M))) * math.sqrt(analytic_del_rho(E, M, X, T_i) / rho_l * g * sin_theta * X)
 
 def analytic_del_T(E, M, X):
-    return (get_del_T_a() * E + (get_T_eff(T_i0) - get_T_L(S_s)) * M) / (E + M)
+    z = D + X * sin_theta
+    return (get_del_T_a(z) * E + (get_T_eff(T_i0) - get_T_L(S_s, z)) * M) / (E + M)
 
 def analytic_del_rho(E, M, X, T_i):
     T_eff = get_T_eff(T_i)
@@ -306,10 +316,11 @@ U_diff = []
 del_T_diff = []
 del_rho_diff = []
 
-for vect in y:
+for vect, s0 in zip(y, s):
+    z = D + s0 * sin_theta
     H_diff.append(get_H(vect))
     U_diff.append(get_U(vect))
-    del_T_diff.append(get_T(vect) - get_T_L(get_S(vect)))
+    del_T_diff.append(get_T(vect, z) - get_T_L(get_S(vect, z), z))
     del_rho_diff.append(get_del_rho(vect))
 labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_rho_diff"]
 
