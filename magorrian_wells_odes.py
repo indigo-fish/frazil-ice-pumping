@@ -40,39 +40,7 @@ rho_s = 916.8
 #T_a is supposed to vary
 T_a = 0 #ambient water temperature
 
-"""
-#simplified constants for testing code
-T_s = 0 #background ice temperature
-E_0 = .1 #max entrainment coefficient
-C_d = 1 #drag coefficient
-St = 1 #heat transfer coefficient
-St_m = 1 #salt transfer coefficient
-tau = 0 #seawater freezing point slope
-T_m = 0.5 #freezing point offset
-lamda = 0 #depth dependence of freezing point
-L = 1 #latent heat of fusion for ice
-c_s = 1 #specific heat capacity for ice
-c_l = 1 #specific heat capacity for seawater
-beta_s = 1 #haline contraction coefficient
-beta_T = 1 #thermal expansion coefficient
-g = 1 #gravitational acceleration
-S_s = 0 #salt concentration in ice
-#I am choosing theta arbitrarily
-theta = 0.1
-sin_theta = math.sin(theta)
-S_a = 35 #ambient water salinity
-#I don't know rho_a, rho_l, rho_s
-rho_s = 900
-#T_a is supposed to vary
-T_a = 0 #ambient water temperature
-"""
-
-"""
-rho_a = 1000 / (1 + beta_T * (T_a - 4) - beta_s * S_a)
-rho_l = rho_a
-"""
-
-
+#provides linear structure of density
 rho_l = 1024
 rho_a = 1000 + rho_l * (beta_s * S_a + beta_T * (4 - T_a))
 
@@ -161,7 +129,7 @@ def dy1_ds(y):
     H = get_H(y)
     U = get_U(y)
     delta_rho = get_del_rho(y)
-    return g * sin_theta * H * delta_rho - C_d * U * abs(U)
+    return g * sin_theta * H * delta_rho / rho_l - C_d * U * abs(U)
 
 def dy2_ds(y):
     U = get_U(y)
@@ -257,6 +225,8 @@ while i < 40:
     H0 = 2 / 3 * (E0 + M0) * X0
     del_T0 = T0 - get_T_L(S0)
     del_rho0 = - rho_l * (beta_s * (S0 - S_a) - beta_T * (T0 - T_a))
+    T_eff = get_T_eff(T_i0)
+    rho_eff = rho_l * (beta_s * (S_a - S_s) - beta_T * (T_a - get_T_eff(T_i0)))
     U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
     T_i0, S_i0 = fsolve(solve_system, [get_T_L(S_a), S_a], args = (M0, U0, T0, S0))
     i_vals.append(i)
@@ -275,7 +245,6 @@ y0_3 = H0 * U0 * del_T0
 
 #puts these initial values in a vector for solving equations
 y0 = [y0_0, y0_1, y0_2, y0_3]
-print(y0)
 
 """
 checks to see if the system of equations was actually solved,
@@ -283,9 +252,6 @@ ie the initial conditions match the analytic solutions
 according to the values it's spitting out, yes, but
 I can see that that's not true!
 """
-print(get_M(T0, S0) - M0)
-print(M0 / (E0 + M0) * get_rho_eff(y0) - del_rho0)
-print((get_del_T_a() * E0 + get_T_eff(T_i0) * M0) / (E0 + M0) - del_T0)
 
 # print("del_T0 " + str(del_T0))
 # print("del_rho0 " + str(del_rho0))
@@ -298,15 +264,15 @@ def analytic_H(E, M, X):
     return 2 / 3 * (E + M) * X
 
 def analytic_U(E, M, X, T_i):
-    return math.sqrt(2 * (E + M) / (3 * C_d + 4 * (E + M))) * math.sqrt(analytic_del_rho(E, M, X, T_i) * g * sin_theta * X)
+    return math.sqrt(2 * (E + M) / (3 * C_d + 4 * (E + M))) * math.sqrt(analytic_del_rho(E, M, X, T_i) / rho_l * g * sin_theta * X)
 
 def analytic_del_T(E, M, X):
-    return (get_del_T_a() * E + (T_i0 - get_T_L(S_s)) * M) / (E + M)
+    return (get_del_T_a() * E + (get_T_eff(T_i0) - get_T_L(S_s)) * M) / (E + M)
 
 def analytic_del_rho(E, M, X, T_i):
     T_eff = get_T_eff(T_i)
     del_rho_eff = rho_l * (beta_s * (S_a - S_s) - beta_T * (T_a - T_eff))
-    return M / (E + M) * rho_l * del_rho_eff
+    return M / (E + M) * del_rho_eff
 
 #converts analytic functions into vector
 def analytic_values(X, E, M, T_i):
@@ -369,11 +335,3 @@ for line_diff, line_analytic, label_d, label_a in zip(array_diff, array_analytic
     plt.legend()
     plt.show()
     fig_num += 1
-
-plt.figure(fig_num)
-plt.scatter(i_vals, del_T_vals, label="del_T")
-plt.scatter(i_vals, del_rho_vals, label="del_rho")
-plt.scatter(i_vals, U_vals, label="U")
-plt.scatter(i_vals, M_vals, label="M")
-plt.legend()
-plt.show()
