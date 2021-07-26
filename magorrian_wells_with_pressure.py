@@ -24,6 +24,7 @@ St_m = 3.1e-5 #salt transfer coefficient
 tau = 5.73e-2 #seawater freezing point slope
 T_m = 8.32e-2 #freezing point offset
 lamda = 7.61e-4 #depth dependence of freezing point
+#lamda = 0
 L = 3.35e5 #latent heat of fusion for ice
 c_s = 2.009e3 #specific heat capacity for ice
 c_l = 3.974e3 #specific heat capacity for seawater
@@ -34,12 +35,12 @@ S_s = 0 #salt concentration in ice
 #I am choosing theta arbitrarily
 theta = 0.1
 sin_theta = math.sin(theta)
-S_a = 36 #ambient water salinity
+S_a = 35 #ambient water salinity
 #I don't know rho_a, rho_l, rho_s
 rho_s = 916.8
 #T_a is supposed to vary
-T_a = 1 #ambient water temperature
-D = 400 #start depth
+T_a = 0 #ambient water temperature
+D = -400 #start depth
 
 #provides linear structure of density
 rho_l = 1024
@@ -250,19 +251,6 @@ y0_3 = H0 * U0 * del_T0
 #puts these initial values in a vector for solving equations
 y0 = [y0_0, y0_1, y0_2, y0_3]
 
-"""
-checks to see if the system of equations was actually solved,
-ie the initial conditions match the analytic solutions
-according to the values it's spitting out, yes, but
-I can see that that's not true!
-"""
-
-# print("del_T0 " + str(del_T0))
-# print("del_rho0 " + str(del_rho0))
-# print("U0 " + str(U0))
-# print("H0 " + str(H0))
-# print("M0 " + str(M0))
-
 #functions for calculating analytic values at locations other than initial point
 def analytic_H(E, M, X):
     return 2 / 3 * (E + M) * X
@@ -272,7 +260,8 @@ def analytic_U(E, M, X, T_i):
 
 def analytic_del_T(E, M, X):
     z = D + X * sin_theta
-    return (get_del_T_a(z) * E + (get_T_eff(T_i0) - get_T_L(S_s, z)) * M) / (E + M)
+    result = (get_del_T_a(z) * E + (get_T_eff(T_i0) - get_T_L(S_s, z)) * M) / (E + M)
+    return result
 
 def analytic_del_rho(E, M, X, T_i):
     T_eff = get_T_eff(T_i)
@@ -300,8 +289,6 @@ for s0 in s:
     del_T_analytic.append(an_val[2])
     del_rho_analytic.append(an_val[3])
 labels_analytic = ["H_analytic", "U_analytic", "del_T_analytic", "del_rho_analytic"]
-
-print(D + max(s) * sin_theta)
 
 array_analytic = np.array([H_analytic, U_analytic, del_T_analytic, del_rho_analytic])
 

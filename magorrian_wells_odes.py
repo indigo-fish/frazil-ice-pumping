@@ -22,8 +22,8 @@ St = 1.1e-3 #heat transfer coefficient
 St_m = 3.1e-5 #salt transfer coefficient
 tau = 5.73e-2 #seawater freezing point slope
 T_m = 8.32e-2 #freezing point offset
-#lamda = 7.61e-4 #depth dependence of freezing point
-lamda = 0
+lamda = 7.61e-4 #depth dependence of freezing point
+#lamda = 0
 L = 3.35e5 #latent heat of fusion for ice
 c_s = 2.009e3 #specific heat capacity for ice
 c_l = 3.974e3 #specific heat capacity for seawater
@@ -38,7 +38,7 @@ sin_theta = math.sin(theta)
 #I don't know rho_a, rho_l, rho_s
 rho_s = 916.8
 #T_a = 1 #ambient water temperature - specified in get_T_a(z) instead
-D = 200 #start depth
+D = -200 #start depth
 
 #provides linear structure of density
 rho_l = 1024
@@ -48,11 +48,11 @@ functions which can be changed to specify different
 temperature/salinity stratifications
 """
 def get_T_a(z):
-    T_a = 0
+    T_a = 1 + z / 100
     return T_a
 
 def get_S_a(z):
-    S_a = 35
+    S_a = 36
     return S_a
 
 def get_rho_a(z):
@@ -225,10 +225,12 @@ def repeat_init_solve(vect, E, X, U, T_i, S_i):
     T_eff = get_T_eff(T_i)
     T_L_S_s = get_T_L(S_s, z)
     del_T_eff = T_eff - T_L_S_s
-    del_rho_eff = rho_l * (beta_s * (S_a0 - S_s) - beta_T * (T_a0 - T_eff))
+    S_a = get_S_a(z)
+    T_a = get_T_a(z)
+    del_rho_eff = rho_l * (beta_s * (S_a - S_s) - beta_T * (T_a - T_eff))
     M, T, S = vect
     del_T = T - get_T_L(S, z)
-    del_rho = -1 * rho_l * (beta_s * (S - S_a0) - beta_T * (T - T_a0))
+    del_rho = -1 * rho_l * (beta_s * (S - S_a) - beta_T * (T - T_a))
     #func1 is equation 25 in Magorrian Wells
     func1 = get_M(T, S, z) - M
     #func2 is equation 29 in Magorrian Wells
@@ -271,9 +273,6 @@ y0_1 = H0 * U0 ** 2
 y0_2 = H0 * U0 * del_rho0 / rho_l
 y0_3 = H0 * U0 * del_T0
 
-print(del_T0)
-
-
 #puts these initial values in a vector for solving equations
 y0 = [y0_0, y0_1, y0_2, y0_3]
 
@@ -286,14 +285,9 @@ def analytic_U(E, M, X, T_i):
 
 def analytic_del_T(E, M, X):
     z = D + X * sin_theta
-    T_a = get_T_a(z)
+    del_T_a = get_del_T_a(z)
     #T_a = T_a0
-    print(T_a)
-    print("T_i0 " + str(T_i0))
-    print(get_T_eff(T_i0))
-    print(get_T_L(S_s, z))
-    result = (T_a * E + (get_T_eff(T_i0) - get_T_L(S_s, z)) * M) / (E + M)
-    print(result)
+    result = (del_T_a * E + (get_T_eff(T_i0) - get_T_L(S_s, z)) * M) / (E + M)
     return result
 
 def analytic_del_rho(E, M, X, T_i):
@@ -363,8 +357,8 @@ fig_num = 1
 
 for line_diff, line_analytic, label_d, label_a in zip(array_diff, array_analytic, labels_diff, labels_analytic):
     plt.figure(fig_num)
-    plt.scatter(s, line_diff, label=label_d)
-    plt.scatter(s, line_analytic, label=label_a)
+    plt.plot(s, line_diff, label=label_d)
+    plt.plot(s, line_analytic, label=label_a)
     plt.legend()
     plt.show()
     fig_num += 1
