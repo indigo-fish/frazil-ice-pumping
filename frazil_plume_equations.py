@@ -40,8 +40,10 @@ rho_s = 916.8
 #T_a = 1 #ambient water temperature - specified in get_T_a(z) instead
 D = -200 #start depth
 U_T = 0 #tidal velocity contributing to drag
-gamma_s = 0
-gamma_T = 0
+K = 2.5e-3
+Pr = 13.8
+Sc = 2432
+nu = 1.95e-6
 
 #provides linear structure of density
 rho_l = 1024
@@ -64,7 +66,7 @@ def get_rho_a(z):
     return 1000 + rho_l * (beta_s * S_a + beta_T * (4 - T_a))
 
 """
-functions which produce various other (generally non-constant)
+functions which produce various other (mostly non-constant)
 values used in the system of differential equations
 """
 def get_T(y):
@@ -102,6 +104,21 @@ def get_U(y):
 
 def get_H(y):
     return y[0] ** 2 / y[1]
+
+def get_gamma_S(y):
+    U = get_U(y)
+    root_K = math.sqrt(K)
+    Re = get_reynolds(y)
+    return root_K * math.sqrt(U ** 2 + U_T ** 2) / (2.12 * np.log(root_K * Re) + 12.5 * Sc ** (2/3) - 8.68)
+
+def get_gamma_T(y):
+    U = get_U(y)
+    root_K = math.sqrt(K)
+    Re = get_reynolds(y)
+    return root_K * math.sqrt(U ** 2 + U_T ** 2) / (2.12 * np.log(root_K * Re) + 12.5 * Pr ** (2/3) - 8.68)
+
+def get_reynolds(y):
+    return y[0] / nu
 
 """
 def get_del_rho(y):
@@ -154,7 +171,8 @@ def dy1_ds(y, z):
     H = get_H(y)
     U = get_U(y)
     phi = get_phi(y, z)
-    return g * sin_theta * H * phi * (1 - rho_s / rho_l) - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
+    result = g * sin_theta * H * phi * (1 - rho_s / rho_l) - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
+    return result
 
 def dy2_ds(y, z):
     U = get_U(y)
@@ -164,17 +182,20 @@ def dy2_ds(y, z):
     T_i = get_T_i(y, z)
     p = get_p(y, z)
     T = get_T(y)
+    gamma_T = get_gamma_T(y)
     result = e * T_a + m * T_i + c_s / c_l * p * T_i - gamma_T * (T - T_i) + rho_s / rho_l * L / c_l * dy4_ds(y, z) - L / c_l * p
     return result
 
 def dy3_ds(y, z):
-    E = E_0 * sin_theta
     U = get_U(y)
+    e = E_0 * sin_theta * abs(U)
     S_a = get_S_a(y)
     S_i = get_S_i(y, z)
     S = get_S(y)
-    M = get_M(get_T(y), S, z)
-    return E * abs(U) * S_a + M * abs(U) * S_i - gamma_s * (S - S_i)
+    m = get_M(get_T(y), S, z) * abs(U)
+    gamma_s = get_gamma_S(y)
+    result = e * S_a + m * S_i - gamma_s * (S - S_i)
+    return result
 
 def dy4_ds(y, z):
     T = get_T(y)
@@ -185,6 +206,7 @@ def dy4_ds(y, z):
     e = E_0 * sin_theta * abs(U)
     m = get_M(T, S, z) * abs(U)
     T_a = get_T_a(z)
+    gamma_T = get_gamma_T(y)
     temp = (T_m + lamda * z) * dy0_ds(y, z) - tau * dy3_ds(y, z) + lamda * y[0] * sin_theta - e * T_a - m * T_i - c_s / c_l * p * T_i + gamma_T * (T - T_i)
     result = (temp * rho_l * c_l / L + rho_l * p) / rho_s
     return result
@@ -256,6 +278,7 @@ y0_4 = 0
 
 #puts these initial values in a vector for solving equations
 y0 = [y0_0, y0_1, y0_2, y0_3, y0_4]
+print(y0)
 
 s = np.linspace(0, 100)
 H_analytic = []
