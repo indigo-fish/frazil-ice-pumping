@@ -40,6 +40,8 @@ rho_s = 916.8
 #T_a = 1 #ambient water temperature - specified in get_T_a(z) instead
 D = -200 #start depth
 U_T = 0 #tidal velocity contributing to drag
+gamma_s = 0
+gamma_T = 0
 
 #provides linear structure of density
 rho_l = 1024
@@ -101,8 +103,10 @@ def get_U(y):
 def get_H(y):
     return y[0] ** 2 / y[1]
 
+"""
 def get_del_rho(y):
     return rho_l * y[2] / y[0]
+"""
 
 def get_T_i(y, z):
     S_a = get_S_a(z)
@@ -125,7 +129,7 @@ def get_p(y, z):
 
 #need to figure out how to get phi!
 def get_phi(y, z):
-    return 0
+    return y[4] / get_U(y)
 
 #system of equations which is solved to find T_i and S_i, given M, U, T and S
 def solve_system(vect, M, U, T, S, z):
@@ -139,12 +143,12 @@ defines each of the linear differential equations
 in terms of the variables which make it easier to solve
 """
 def dy0_ds(y, z):
-    E = E_0 * sin_theta
     U = get_U(y)
-    M = get_M(get_T(y), get_S(y), z)
+    e = E_0 * sin_theta * abs(U)
+    m = get_M(get_T(y), get_S(y), z) * abs(U)
     #need to figure out how to parameterize precipitation
     p = get_p(y, z)
-    return E * abs(U) + M * abs(U) + p
+    return e + m + p
 
 def dy1_ds(y, z):
     H = get_H(y)
@@ -153,19 +157,37 @@ def dy1_ds(y, z):
     return g * sin_theta * H * phi * (1 - rho_s / rho_l) - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
 
 def dy2_ds(y, z):
-    E = E_0 * sin_theta
     U = get_U(y)
+    e = E_0 * sin_theta * abs(U)
     T_a = get_T_a(z)
-    M = get_M(get_T(y), get_S(y), z)
+    m = get_M(get_T(y), get_S(y), z) * abs(U)
+    T_i = get_T_i(y, z)
     p = get_p(y, z)
-    result = E * abs(U) * T_a + M * abs(U) * T_s + c_s / c_l * rho_l / rho_s * p * T_s
+    T = get_T(y)
+    result = e * T_a + m * T_i + c_s / c_l * p * T_i - gamma_T * (T - T_i) + rho_s / rho_l * L / c_l * dy4_ds(y, z) - L / c_l * p
     return result
 
 def dy3_ds(y, z):
     E = E_0 * sin_theta
     U = get_U(y)
+    S_a = get_S_a(y)
+    S_i = get_S_i(y, z)
     S = get_S(y)
-    return E * abs(U) * S
+    M = get_M(get_T(y), S, z)
+    return E * abs(U) * S_a + M * abs(U) * S_i - gamma_s * (S - S_i)
+
+def dy4_ds(y, z):
+    T = get_T(y)
+    S = get_S(y)
+    T_i = get_T_i(y, z)
+    U = get_U(y)
+    p = get_p(y, z)
+    e = E_0 * sin_theta * abs(U)
+    m = get_M(T, S, z) * abs(U)
+    T_a = get_T_a(z)
+    temp = (T_m + lamda * z) * dy0_ds(y, z) - tau * dy3_ds(y, z) + lamda * y[0] * sin_theta - e * T_a - m * T_i - c_s / c_l * p * T_i + gamma_T * (T - T_i)
+    result = (temp * rho_l * c_l / L + rho_l * p) / rho_s
+    return result
 
 """
 re-expresses system of differential equations as a vector
@@ -176,7 +198,8 @@ def derivative(y, s):
     dy1 = dy1_ds(y, z)
     dy2 = dy2_ds(y, z)
     dy3 = dy3_ds(y, z)
-    return [dy0, dy1, dy2, dy3]
+    dy4 = dy4_ds(y, z)
+    return [dy0, dy1, dy2, dy3, dy4]
 
 """
 comes up with initial values using analytical solutions
@@ -227,12 +250,12 @@ to find more accurate initial conditions
 #converts values into format most useful for differential equations
 y0_0 = H0 * U0
 y0_1 = H0 * U0 ** 2
-y0_2 = H0 * U0 * del_rho0 / rho_l
-y0_3 = H0 * U0 * del_T0
+y0_2 = H0 * U0 * T0
+y0_3 = H0 * U0 * S0
+y0_4 = 0
 
 #puts these initial values in a vector for solving equations
-y0 = [y0_0, y0_1, y0_2, y0_3]
-
+y0 = [y0_0, y0_1, y0_2, y0_3, y0_4]
 
 s = np.linspace(0, 100)
 H_analytic = []
@@ -247,6 +270,7 @@ H_diff = []
 U_diff = []
 del_T_diff = []
 del_S_diff = []
+phi_diff = []
 
 for vect, s0 in zip(y, s):
     z = D + s0 * sin_theta
@@ -254,9 +278,10 @@ for vect, s0 in zip(y, s):
     U_diff.append(get_U(vect))
     del_T_diff.append(get_T(vect) - get_T_L(get_S(vect), z))
     del_S_diff.append(get_S(vect) - get_S_a(z))
-labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_S_diff"]
+    phi_diff.append(get_phi(vect, z))
+labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_S_diff", "phi_diff"]
 
-array_diff = np.array([H_diff, U_diff, del_T_diff, del_S_diff])
+array_diff = np.array([H_diff, U_diff, del_T_diff, del_S_diff, phi_diff])
 
 # print("del_T0 " + str(analytic_del_T(E0, M0, X0)))
 # print("del_rho0 " + str(analytic_del_rho(E0, M0, X0)))
