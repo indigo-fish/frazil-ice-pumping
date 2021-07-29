@@ -49,6 +49,7 @@ temperature/salinity stratifications
 """
 def get_T_a(z):
     T_a = 1 + z / 100
+    #T_a = 0
     return T_a
 
 def get_S_a(z):
