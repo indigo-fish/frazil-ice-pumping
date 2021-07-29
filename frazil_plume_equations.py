@@ -40,13 +40,10 @@ rho_s = 916.8
 #T_a = 1 #ambient water temperature - specified in get_T_a(z) instead
 D = -200 #start depth
 U_T = 0 #tidal velocity contributing to drag
-K = 2.5e-3
 Pr = 13.8
 Sc = 2432
 nu = 1.95e-6
-
-#provides linear structure of density
-rho_l = 1024
+rho_l = 1024 #density of liquid, assumed constant
 
 """
 functions which can be changed to specify different
@@ -69,28 +66,35 @@ def get_rho_a(z):
 functions which produce various other (mostly non-constant)
 values used in the system of differential equations
 """
+#calculates temperature by dividing HUT / HU
 def get_T(y):
     return y[2] / y[0]
 
+#liquidus relationship
 def get_T_L(S, z):
     return T_m + lamda * z - tau * (S - S_s)
 
+#calculates salinity by dividing HUS / HU
 def get_S(y):
     return y[3] / y[0]
 
+#quadratic coefficient used to calculate M
 def get_a(z):
     T_L_S_s = get_T_L(S_s, z)
     return 1 - c_s / L * (T_s - T_L_S_s)
 
+#quadratic coefficient used to calculate M
 def get_b(T, S, z):
     T_L_S = get_T_L(S, z)
     T_L_S_s = get_T_L(S_s, z)
     return St_m * (1 - c_s / L * (T_s - T_L_S) - St * c_l / L * (T - T_L_S_s))
 
+#quadratic coefficient used to calculate M
 def get_c(T, S, z):
     T_L_S = get_T_L(S, z)
     return - St_m * St * c_l / L * (T - T_L_S)
 
+#calculates dimensionless coefficient for melt rate using quadratic formula
 def get_M(T, S, z):
     a = get_a(z)
     b = get_b(T, S, z)
@@ -99,57 +103,76 @@ def get_M(T, S, z):
     result = (- b + math.sqrt(abs(b ** 2 - 4 * a * c))) / (2 * a)
     return result
 
+#calculates velocity by dividing HU^2 / HU
 def get_U(y):
     return y[1] / y[0]
 
+#calculates plume thickness by dividing (HU)^2 / HU^2
 def get_H(y):
     return y[0] ** 2 / y[1]
 
+#calculates variable salt transfer coefficient
 def get_gamma_S(y):
     U = get_U(y)
-    root_K = math.sqrt(K)
+    root_K = math.sqrt(C_d)
     Re = get_reynolds(y)
     return root_K * math.sqrt(U ** 2 + U_T ** 2) / (2.12 * np.log(root_K * Re) + 12.5 * Sc ** (2/3) - 8.68)
 
+#calculates variable heat transfer coefficient
 def get_gamma_T(y):
     U = get_U(y)
-    root_K = math.sqrt(K)
+    root_K = math.sqrt(C_d)
     Re = get_reynolds(y)
     return root_K * math.sqrt(U ** 2 + U_T ** 2) / (2.12 * np.log(root_K * Re) + 12.5 * Pr ** (2/3) - 8.68)
 
+#calculates Reynolds number by dividing HU / kinematic viscosity
 def get_reynolds(y):
-    return y[0] / nu
+    return abs(y[0] / nu)
 
-"""
-def get_del_rho(y):
-    return rho_l * y[2] / y[0]
-"""
 
+def get_del_rho(y, z):
+    S_a = get_S_a(z)
+    S = get_S(y)
+    T_a = get_T_a(z)
+    T = get_T(y)
+    return rho_l * (beta_s * (S_a - S) - beta_T * (T_a - T))
+
+
+#calculates interfacial temperature using system of equations
 def get_T_i(y, z):
     S_a = get_S_a(z)
-    T_i, S_i = fsolve(solve_system, [get_T_L(S_a, z), S_a], args = (get_M(get_T(y), get_S(y), z), get_U(y), get_T(y), get_S(y), z))
+    T_i, S_i = fsolve(interfacial_system, [get_T_L(S_a, z), S_a], args = (get_M(get_T(y), get_S(y), z), get_U(y), get_T(y), get_S(y), z))
     return T_i
 
+#calculates interfacial salinity using system of equations
 def get_S_i(y, z):
     S_a = get_S_a(z)
-    T_i, S_i = fsolve(solve_system, [get_T_L(S_a, z), S_a], args = (get_M(get_T(y), get_S(y), z), get_U(y), get_T(y), get_S(y), z))
+    T_i, S_i = fsolve(interfacial_system, [get_T_L(S_a, z), S_a], args = (get_M(get_T(y), get_S(y), z), get_U(y), get_T(y), get_S(y), z))
     return S_i
 
+#calculates difference between T_a and freezing temp at salinity S_a
 def get_del_T_a(z):
     T_a = get_T_a(z)
     S_a = get_S_a(z)
     return T_a - get_T_L(S_a, z)
 
-#need to figure out how to parameterize precipitation of frazil!
+#calculates precipitation rate assuming Stokes drag/buoyancy balance and spherical ice crystals
 def get_p(y, z):
-    return 0
+    R = get_radius(y)
+    v_rel = 2 / 9 * R ** 2 * g / (nu * rho_l) #vertical ice velocity relative to surrounding liquid
+    phi = get_phi(y, z)
+    return rho_s / rho_l * phi * v_rel
 
-#need to figure out how to get phi!
+#need to figure out how to choose average radius of ice crystals!
+def get_radius(y):
+    return .5e-3
+
+#calculates phi by dividing U * phi / U
 def get_phi(y, z):
     return y[4] / get_U(y)
 
 #system of equations which is solved to find T_i and S_i, given M, U, T and S
-def solve_system(vect, M, U, T, S, z):
+def interfacial_system(vect, M, U, T, S, z):
     T_i, S_i = vect
     func1 = rho_l * L * M * abs(U) + rho_s * c_s * (T_i - T_s) * M * abs(U) - rho_l * c_l * St * abs(U) * (T - T_i)
     func2 = get_T_L(S_i, z) - T_i
@@ -159,6 +182,7 @@ def solve_system(vect, M, U, T, S, z):
 defines each of the linear differential equations
 in terms of the variables which make it easier to solve
 """
+#derivative of HU
 def dy0_ds(y, z):
     U = get_U(y)
     e = E_0 * sin_theta * abs(U)
@@ -167,13 +191,16 @@ def dy0_ds(y, z):
     p = get_p(y, z)
     return e + m + p
 
+#derivative of HU^2
 def dy1_ds(y, z):
     H = get_H(y)
     U = get_U(y)
     phi = get_phi(y, z)
-    result = g * sin_theta * H * phi * (1 - rho_s / rho_l) - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
+    delta_rho = get_del_rho(y, z)
+    result = g * sin_theta * H * (phi * (1 - rho_s / rho_l) + delta_rho / rho_l) - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
     return result
 
+#derivative of HUT
 def dy2_ds(y, z):
     U = get_U(y)
     e = E_0 * sin_theta * abs(U)
@@ -186,6 +213,7 @@ def dy2_ds(y, z):
     result = e * T_a + m * T_i + c_s / c_l * p * T_i - gamma_T * (T - T_i) + rho_s / rho_l * L / c_l * dy4_ds(y, z) - L / c_l * p
     return result
 
+#derivative of HUS
 def dy3_ds(y, z):
     U = get_U(y)
     e = E_0 * sin_theta * abs(U)
@@ -197,6 +225,7 @@ def dy3_ds(y, z):
     result = e * S_a + m * S_i - gamma_s * (S - S_i)
     return result
 
+#derivative of U * phi
 def dy4_ds(y, z):
     T = get_T(y)
     S = get_S(y)
@@ -262,7 +291,7 @@ H0 = 2 / 3 * (E0 + M0) * X0
 del_T0 = T0 - get_T_L(S0, z0)
 del_rho0 = - rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
 U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
-T_i0, S_i0 = fsolve(solve_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
+T_i0, S_i0 = fsolve(interfacial_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
 
 """
 iterates through more complete version of analytic equations
