@@ -111,7 +111,7 @@ def get_M(T, S, z):
     b = get_b(T, S, z)
     c = get_c(T, S, z)
     #temporarily taking absolute value to make code run
-    result = (- b + math.sqrt(abs(b ** 2 - 4 * a * c))) / (2 * a)
+    result = (- b + math.sqrt((b ** 2 - 4 * a * c))) / (2 * a)
     return result
 
 def get_U(y):
@@ -348,8 +348,8 @@ while i < 40:
 #converts values into format most useful for differential equations
 y0_0 = H0 * U0
 y0_1 = H0 * U0 ** 2
-y0_2 = H0 * U0 * T0
-y0_3 = H0 * U0 * S0
+y0_2 = H0 * U0 * del_rho0 / rho_l
+y0_3 = H0 * U0 * del_T0
 y0_4 = 0
 
 print(T0)
