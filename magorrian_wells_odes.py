@@ -7,6 +7,7 @@ as practice for creating my own with frazil ice
 import numpy as np
 import math
 from scipy.integrate import odeint
+from scipy.integrate import quad
 from scipy.optimize import fsolve
 import matplotlib.pyplot as plt
 
@@ -22,8 +23,8 @@ St = 1.1e-3 #heat transfer coefficient
 St_m = 3.1e-5 #salt transfer coefficient
 tau = 5.73e-2 #seawater freezing point slope
 T_m = 8.32e-2 #freezing point offset
-lamda = 7.61e-4 #depth dependence of freezing point
-#lamda = 0
+#lamda = 7.61e-4 #depth dependence of freezing point
+lamda = 0
 L = 3.35e5 #latent heat of fusion for ice
 c_s = 2.009e3 #specific heat capacity for ice
 c_l = 3.974e3 #specific heat capacity for seawater
@@ -41,25 +42,36 @@ rho_s = 916.8
 D = -200 #start depth
 
 #provides linear structure of density
-rho_l = 1024
+rho_l = 1028
 
 """
 functions which can be changed to specify different
 temperature/salinity stratifications
 """
 def get_T_a(z):
-    T_a = 1 + z / 100
+    integral, error = quad(get_d_T_a_dz, D, z)
+    T_a = 0 + integral
     #T_a = 0
     return T_a
 
 def get_S_a(z):
-    S_a = 36
+    integral, error = quad(get_d_S_a_dz, D, z)
+    S_a = 35 + integral
     return S_a
 
 def get_rho_a(z):
     S_a = get_S_a(z)
     T_a = get_T_a(z)
     return 1000 + rho_l * (beta_s * S_a + beta_T * (4 - T_a))
+
+def get_d_T_a_dz(z):
+    return 0
+
+def get_d_S_a_dz(z):
+    return 0
+
+def get_d_rho_a_dz(z):
+    return rho_l * (beta_s * get_d_S_a_dz(z) - beta_T * get_d_T_a_dz(z))
 
 """
 functions which produce various other (generally non-constant)
@@ -158,7 +170,8 @@ def dy2_ds(y, z):
     U = get_U(y)
     del_rho_eff = get_rho_eff(y, z)
     M = get_M(get_T(y, z), get_S(y, z), z)
-    return del_rho_eff / rho_l * M * abs(U)
+    drho_a_ds = get_d_rho_a_dz(z) * sin_theta
+    return drho_a_ds / rho_l * y[0] + del_rho_eff / rho_l * M * abs(U)
 
 def dy3_ds(y, z):
     E = E_0 * sin_theta
@@ -167,8 +180,8 @@ def dy3_ds(y, z):
     M = get_M(get_T(y, z), get_S(y, z), z)
     T_eff = get_T_eff(get_T_i(y, z))
     T_L_S_s = get_T_L(S_s, z)
-    derivative = del_T_a * E * abs(U) + M * abs(U) * (T_eff - T_L_S_s) - lamda * sin_theta * y[0]
-    return derivative
+    result = del_T_a * E * abs(U) + M * abs(U) * (T_eff - T_L_S_s) - lamda * sin_theta * y[0]
+    return result
 
 """
 re-expresses system of differential equations as a vector
@@ -179,6 +192,14 @@ def derivative(y, s):
     dy1 = dy1_ds(y, z)
     dy2 = dy2_ds(y, z)
     dy3 = dy3_ds(y, z)
+    U = get_U(y)
+    #e = E_0 * sin_theta * abs(U)
+    T = get_T(y, z)
+    S = get_S(y, z)
+    #m = get_M(T, S, z) * abs(U)
+    #T_i = get_T_i(y, z)
+    #alt_form_del_T = e * get_T_a(z) + m * T_i - St * abs(U) * (T - T_i)
+    #print(alt_form_del_T)
     return [dy0, dy1, dy2, dy3]
 
 """
@@ -218,7 +239,7 @@ allowing use of full versions of equations 29, 30
 H0 = 2 / 3 * (E0 + M0) * X0
 del_T0 = T0 - get_T_L(S0, z0)
 del_rho0 = - rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
-U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
+U0 = math.sqrt(2 * ((E0 + M0) / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
 T_i0, S_i0 = fsolve(solve_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
 
 def repeat_init_solve(vect, E, X, U, T_i, S_i):
@@ -259,7 +280,7 @@ while i < 40:
     del_rho0 = -1 * rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
     T_eff = get_T_eff(T_i0)
     rho_eff = rho_l * (beta_s * (S_a0 - S_s) - beta_T * (T_a0 - get_T_eff(T_i0)))
-    U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
+    U0 = math.sqrt(2 * ((E0 + M0) / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
     T_i0, S_i0 = fsolve(solve_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
     i_vals.append(i)
     del_T_vals.append(del_T0)
@@ -274,8 +295,10 @@ y0_1 = H0 * U0 ** 2
 y0_2 = H0 * U0 * del_rho0 / rho_l
 y0_3 = H0 * U0 * del_T0
 
+print(T0)
 #puts these initial values in a vector for solving equations
 y0 = [y0_0, y0_1, y0_2, y0_3]
+print(y0)
 
 #functions for calculating analytic values at locations other than initial point
 def analytic_H(E, M, X):
@@ -328,10 +351,15 @@ array_analytic = np.array([H_analytic, U_analytic, del_T_analytic, del_rho_analy
 #defines distances along slope to record results
 y = odeint(derivative, y0, s)
 
+print(y[49])
+
 H_diff = []
 U_diff = []
 del_T_diff = []
 del_rho_diff = []
+#del_S_diff = []
+#T_diff = []
+#T_L_diff = []
 
 for vect, s0 in zip(y, s):
     z = D + s0 * sin_theta
@@ -339,9 +367,14 @@ for vect, s0 in zip(y, s):
     U_diff.append(get_U(vect))
     del_T_diff.append(get_T(vect, z) - get_T_L(get_S(vect, z), z))
     del_rho_diff.append(get_del_rho(vect))
+    #del_S_diff.append(get_S(vect, z) - get_S_a(z))
+    #T_diff.append(get_T(vect, z))
+    #T_L_diff.append(get_T_L(get_S(vect, z), z))
 labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_rho_diff"]
+#labels_diff_2 = ["del_S_diff", "T_diff", "T_L_diff"]
 
 array_diff = np.array([H_diff, U_diff, del_T_diff, del_rho_diff])
+#array_diff_2 = np.array([del_S_diff, T_diff, T_L_diff])
 
 # print("del_T0 " + str(analytic_del_T(E0, M0, X0)))
 # print("del_rho0 " + str(analytic_del_rho(E0, M0, X0)))
@@ -363,3 +396,12 @@ for line_diff, line_analytic, label_d, label_a in zip(array_diff, array_analytic
     plt.legend()
     plt.show()
     fig_num += 1
+
+"""
+for line_diff, label_d in zip(array_diff_2, labels_diff_2):
+    plt.figure(fig_num)
+    plt.plot(s, line_diff, label=label_d)
+    plt.legend()
+    plt.show()
+    fig_num += 1
+"""
