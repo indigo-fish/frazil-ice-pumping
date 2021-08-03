@@ -33,8 +33,8 @@ beta_T = 3.87e-5 #thermal expansion coefficient
 g = 9.81 #gravitational acceleration
 S_s = 0 #salt concentration in ice
 #I am choosing theta arbitrarily
-theta = math.atan(1.86e-3)
-sin_theta = math.sin(theta)
+#theta = 0.1
+sin_theta = 1115/600e3
 #S_a = 35 #ambient water salinity - specified in get_S_a(z) instead
 #I don't know rho_a, rho_l, rho_s
 rho_s = 916.8
@@ -50,28 +50,36 @@ rho_l = 1028
 functions which can be changed to specify different
 temperature/salinity stratifications
 """
+#integrates derivative to find T_a as a function of depth
+#starting from known T_a at D
 def get_T_a(z):
     integral, error = quad(get_d_T_a_dz, D, z)
     T_a = -1.9 + integral
     #T_a = 0
     return T_a
 
+#integrates derivative to find S_a as a function of depth
+#starting from known S_a at D
 def get_S_a(z):
     integral, error = quad(get_d_S_a_dz, D, z)
     S_a = 34.5 + integral
     return S_a
 
+#calculates rho_a as a function of T_a and S_a (which depend on depth)
 def get_rho_a(z):
     S_a = get_S_a(z)
     T_a = get_T_a(z)
     return 1000 + rho_l * (beta_s * S_a + beta_T * (4 - T_a))
 
+#specifies rate of change of T_a with depth
 def get_d_T_a_dz(z):
     return (-2.18 + 1.9) / 1115
 
+#specifies rate of change of S_a with depth
 def get_d_S_a_dz(z):
     return (34.71-34.5) / 1115
 
+#calculates rate of change of rho_a with depth
 def get_d_rho_a_dz(z):
     return rho_l * (beta_s * get_d_S_a_dz(z) - beta_T * get_d_T_a_dz(z))
 
@@ -79,32 +87,39 @@ def get_d_rho_a_dz(z):
 functions which produce various other (generally non-constant)
 values used in the system of differential equations
 """
+#calculates temperature from H*U*delta_T and H*U
 def get_T(y, z):
     result = T_m + lamda * z - tau * (get_S(y, z) - S_s) + y[3] / y[0]
     return result
 
+#calculates liquidus temperature
 def get_T_L(S, z):
     return T_m + lamda * z - tau * (S - S_s)
 
+#calculates salinity from H*U*delta_T, H*U*delta_rho/rho_l and H*U
 def get_S(y, z):
     S_a = get_S_a(z)
     temp = beta_s * S_a + beta_T * (T_m + lamda * z + tau * S_s + y[3] / y[0]) - y[2] / y[0]
     result = temp / (beta_s + beta_T * tau)
     return result
 
+#quadratic coefficient a used to calculate M
 def get_a(z):
     T_L_S_s = get_T_L(S_s, z)
     return 1 - c_s / L * (T_s - T_L_S_s)
 
+#quadratic coefficient b used to calculate M
 def get_b(T, S, z):
     T_L_S = get_T_L(S, z)
     T_L_S_s = get_T_L(S_s, z)
     return St_m * (1 - c_s / L * (T_s - T_L_S) - St * c_l / L * (T - T_L_S_s))
 
+#quadratic coefficient c used to calculate M
 def get_c(T, S, z):
     T_L_S = get_T_L(S, z)
     return - St_m * St * c_l / L * (T - T_L_S)
 
+#calculates dimensionless coefficient for melt rate using quadratic formula
 def get_M(T, S, z):
     a = get_a(z)
     b = get_b(T, S, z)
@@ -113,33 +128,41 @@ def get_M(T, S, z):
     result = (- b + math.sqrt(abs(b ** 2 - 4 * a * c))) / (2 * a)
     return result
 
+#calculates velocity using (H*U^2) / (H*U)
 def get_U(y):
     return y[1] / y[0]
 
+#calculates plume thickness using (H*U)^2 / (H*U)
 def get_H(y):
     return y[0] ** 2 / y[1]
 
+#calculates density deficit using H*U*delta_rho/rho_l and H*U
 def get_del_rho(y):
     return rho_l * y[2] / y[0]
 
+#calculates interfacial temperature by solving system of equations
 def get_T_i(y, z):
     S_a = get_S_a(z)
-    T_i, S_i = fsolve(solve_system, [get_T_L(S_a, z), S_a], args = (get_M(get_T(y, z), get_S(y, z), z), get_U(y), get_T(y, z), get_S(y, z), z))
+    T_i, S_i = fsolve(interfacial_system, [get_T_L(S_a, z), S_a], args = (get_M(get_T(y, z), get_S(y, z), z), get_U(y), get_T(y, z), get_S(y, z), z))
     return T_i
 
+#calculates interfacial salinity by solving system of equations
 def get_S_i(y, z):
     S_a = get_S_a(z)
-    T_i, S_i = fsolve(solve_system, [get_T_L(S_a, z), S_a], args = (get_M(get_T(y, z), get_S(y, z), z), get_U(y), get_T(y, z), get_S(y, z), z))
+    T_i, S_i = fsolve(interfacial_system, [get_T_L(S_a, z), S_a], args = (get_M(get_T(y, z), get_S(y, z), z), get_U(y), get_T(y, z), get_S(y, z), z))
     return S_i
 
+#calculates effective temperature due to latent heat released by melting
 def get_T_eff(T_i):
     return T_i - L / c_l + c_s / c_l * (T_s - T_i)
 
+#calculates effective density due to latent heat released by melting
 def get_rho_eff(y, z):
     S_a = get_S_a(z)
     T_a = get_T_a(z)
     return rho_l * (beta_s * (S_a - S_s) - beta_T * (T_a - get_T_eff(get_T_i(y, z))))
 
+#calculates difference between T_a and freezing temp at salinity S_a
 def get_del_T_a(z):
     T_a = get_T_a(z)
     S_a = get_S_a(z)
@@ -160,8 +183,11 @@ def get_radius(y):
 def get_phi(y, z):
     return y[4] / get_U(y)
 
+def get_z(H, s):
+    return D + s * sin_theta - H / 2
+
 #system of equations which is solved to find T_i and S_i, given M, U, T and S
-def solve_system(vect, M, U, T, S, z):
+def interfacial_system(vect, M, U, T, S, z):
     T_i, S_i = vect
     func1 = rho_l * L * M * abs(U) + rho_s * c_s * (T_i - T_s) * M * abs(U) - rho_l * c_l * St * abs(U) * (T - T_i)
     func2 = get_T_L(S_i, z) - T_i
@@ -215,7 +241,6 @@ def dy3_ds(y, z):
     temp = del_T_a * e + m * (T_eff - T_L_S_s) - lamda * sin_theta * y[0]
     #need to change factors of rho to account for specific, not volume, heat capacity
     result = temp + (c_s / c_l * T_i - (L / c_l + T_m + lamda * z)) * p + rho_s / rho_l * L / c_l * dy4_ds(y, z)
-    print(str(result) + " " + str(temp))
     return result
 
 def dy4_ds(y, z):
@@ -235,14 +260,13 @@ def dy4_ds(y, z):
         S_a = get_S_a(z)
         temp = (T_m + lamda * z) * dy0_ds(y, z) - tau * (e * S_a + m * S_i - St_m * U * (S - S_i)) + lamda * y[0] * sin_theta - e * T_a - m * T_i - c_s / c_l * p * T_i + St * U * (T - T_i)
         result = (temp * rho_l * c_l / L + rho_l * p) / rho_s
-    result = 0
     return result
 
 """
 re-expresses system of differential equations as a vector
 """
 def derivative(y, s):
-    z = D + s * sin_theta - get_H(y) / 2
+    z = get_z(get_H(y), s)
     dy0 = dy0_ds(y, z)
     dy1 = dy1_ds(y, z)
     dy2 = dy2_ds(y, z)
@@ -288,10 +312,10 @@ H0 = 2 / 3 * (E0 + M0) * X0
 del_T0 = T0 - get_T_L(S0, z0)
 del_rho0 = - rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
 U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
-T_i0, S_i0 = fsolve(solve_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
+T_i0, S_i0 = fsolve(interfacial_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
 
 def repeat_init_solve(vect, E, X, U, T_i, S_i):
-    z = D + X * sin_theta
+    z = get_z(H0, X)
     T_eff = get_T_eff(T_i)
     T_L_S_s = get_T_L(S_s, z)
     del_T_eff = T_eff - T_L_S_s
@@ -332,7 +356,7 @@ while i < 40:
     #print(del_rho0)
     #temporarily taking absolute value to make code run
     U0 = math.sqrt((2 * ((E0 + M0) / (3 * C_d + 4 * (E0 + M0))) * del_rho0 / rho_l * g * sin_theta * X0))
-    T_i0, S_i0 = fsolve(solve_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
+    T_i0, S_i0 = fsolve(interfacial_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
     i_vals.append(i)
     del_T_vals.append(del_T0)
     del_rho_vals.append(del_rho0)
@@ -362,14 +386,14 @@ def analytic_U(E, M, X, T_i):
     return math.sqrt(abs(2 * (E + M) / (3 * C_d + 4 * (E + M)) * analytic_del_rho(E, M, X, T_i) / rho_l * g * sin_theta * X))
 
 def analytic_del_T(E, M, X):
-    z = D + X * sin_theta
+    z = get_z(0, X)
     del_T_a = get_del_T_a(z)
     #T_a = T_a0
     result = (del_T_a * E + (get_T_eff(T_i0) - get_T_L(S_s, z)) * M) / (E + M)
     return result
 
 def analytic_del_rho(E, M, X, T_i):
-    z = D + X * sin_theta
+    z = get_z(0, X)
     S_a = get_S_a(z)
     T_a = get_T_a(z)
     #S_a = S_a0
@@ -386,7 +410,7 @@ def analytic_values(X, E, M, T_i):
     del_rho = analytic_del_rho(E, M, X, T_i)
     return [H, U, del_T, del_rho]
 
-s = np.linspace(0, 600)
+s = np.linspace(0, 600e3)
 H_analytic = []
 U_analytic = []
 del_T_analytic = []
@@ -417,7 +441,7 @@ phi_diff = []
 #T_L_diff = []
 
 for vect, s0 in zip(y, s):
-    z = D + s0 * sin_theta
+    z = get_z(get_H(vect), s0)
     H_diff.append(get_H(vect))
     U_diff.append(get_U(vect))
     del_T_diff.append(get_T(vect, z) - get_T_L(get_S(vect, z), z))
