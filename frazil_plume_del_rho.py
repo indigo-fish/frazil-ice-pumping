@@ -124,8 +124,7 @@ def get_M(T, S, z):
     a = get_a(z)
     b = get_b(T, S, z)
     c = get_c(T, S, z)
-    #temporarily taking absolute value to make code run
-    result = (- b + math.sqrt(abs(b ** 2 - 4 * a * c))) / (2 * a)
+    result = (- b + math.sqrt((b ** 2 - 4 * a * c))) / (2 * a)
     return result
 
 #calculates velocity using (H*U^2) / (H*U)
@@ -173,13 +172,13 @@ def get_p(y, z):
     R = get_radius(y)
     v_rel = 2 / 9 * R ** 2 * g / (nu * rho_l) #vertical ice velocity relative to surrounding liquid
     phi = get_phi(y, z)
-    return rho_s / rho_l * phi * v_rel
+    return - rho_s / rho_l * phi * v_rel
 
 #need to figure out how to choose average radius of ice crystals!
 def get_radius(y):
     return .5e-3
 
-#calculates phi by dividing U * phi / U
+#calculates phi by dividing U*phi / U
 def get_phi(y, z):
     return y[4] / get_U(y)
 
@@ -197,7 +196,7 @@ def interfacial_system(vect, M, U, T, S, z):
 defines each of the linear differential equations
 in terms of the variables which make it easier to solve
 """
-#derivative of HU
+#derivative of H*U
 def dy0_ds(y, z):
     U = get_U(y)
     e = E_0 * sin_theta * abs(U)
@@ -206,7 +205,7 @@ def dy0_ds(y, z):
     p = get_p(y, z)
     return e + m + p
 
-#derivative of HU^2
+#derivative of H*U^2
 def dy1_ds(y, z):
     H = get_H(y)
     U = get_U(y)
@@ -215,6 +214,7 @@ def dy1_ds(y, z):
     result = g * sin_theta * H * (phi * (1 - rho_s / rho_l) + delta_rho / rho_l) - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
     return result
 
+#derivative of H*U*delta_rho / rho_l
 def dy2_ds(y, z):
     U = get_U(y)
     del_rho_eff = get_rho_eff(y, z)
@@ -227,8 +227,10 @@ def dy2_ds(y, z):
     temp = drho_a_ds / rho_l * y[0] + del_rho_eff / rho_l * m
     #need to change factors of rho to account for specific, not volume, heat capacity
     result = temp + (beta_s * S_a - beta_T * (T_a - c_s / c_l * T_i)) * p + beta_T * rho_s / rho_l * L / c_l * dy4_ds(y, z)
+    print(result - temp)
     return result
 
+#derivative of H*U*delta_T
 def dy3_ds(y, z):
     U = get_U(y)
     e = E_0 * sin_theta * abs(U)
@@ -243,6 +245,7 @@ def dy3_ds(y, z):
     result = temp + (c_s / c_l * T_i - (L / c_l + T_m + lamda * z)) * p + rho_s / rho_l * L / c_l * dy4_ds(y, z)
     return result
 
+#derivative of U*phi
 def dy4_ds(y, z):
     T = get_T(y, z)
     S = get_S(y, z)
@@ -281,7 +284,7 @@ comes up with initial values using analytical solutions
 """
 system of equations which is solved to find M, T, S
 (under assumption that M is small, so do not need to calculate T_i, S_i
-for calculation of initial y values
+for calculation of initial y values)
 """
 def solve_init_system(vect, E, z):
     M, T, S = vect
@@ -295,6 +298,7 @@ def solve_init_system(vect, E, z):
     func3 = beta_s * (S - S_a) - beta_T * (T - T_a)
     return [func1, func2, func3]
 
+#sets initial distance along slope at which analytical solutions are used
 X0 = 0.01
 E0 = E_0 * sin_theta
 z0 = D + X0 * sin_theta
@@ -305,8 +309,8 @@ T_a0 = get_T_a(z0)
 M0, T0, S0 = fsolve(solve_init_system, [E0 * St / (E0 + St) * c_l * get_del_T_a(z0) / L, T_a0, S_a0], args = (E0, z0))
 
 """
-converts M, T, S values into values for U, rho, T_i, S_i
-allowing use of full versions of equations 29, 30
+converts M, T, S values into values for other terms
+allowing use of full versions of equations 29, 30 in Magorrian Wells
 """
 H0 = 2 / 3 * (E0 + M0) * X0
 del_T0 = T0 - get_T_L(S0, z0)
@@ -352,9 +356,6 @@ while i < 40:
     del_rho0 = -1 * rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
     T_eff = get_T_eff(T_i0)
     rho_eff = rho_l * (beta_s * (S_a0 - S_s) - beta_T * (T_a0 - get_T_eff(T_i0)))
-    #print(M0)
-    #print(del_rho0)
-    #temporarily taking absolute value to make code run
     U0 = math.sqrt((2 * ((E0 + M0) / (3 * C_d + 4 * (E0 + M0))) * del_rho0 / rho_l * g * sin_theta * X0))
     T_i0, S_i0 = fsolve(interfacial_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
     i_vals.append(i)
@@ -410,6 +411,7 @@ def analytic_values(X, E, M, T_i):
     del_rho = analytic_del_rho(E, M, X, T_i)
     return [H, U, del_T, del_rho]
 
+#defines distances along slope to record results
 s = np.linspace(0, 600e3)
 H_analytic = []
 U_analytic = []
@@ -450,10 +452,10 @@ for vect, s0 in zip(y, s):
     #del_S_diff.append(get_S(vect, z) - get_S_a(z))
     #T_diff.append(get_T(vect, z))
     #T_L_diff.append(get_T_L(get_S(vect, z), z))
-labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_rho_diff"]
+labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_rho_diff", "phi_diff"]
 #labels_diff_2 = ["del_S_diff", "T_diff", "T_L_diff"]
 
-array_diff = np.array([H_diff, U_diff, del_T_diff, del_rho_diff])
+array_diff = np.array([H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff])
 #array_diff_2 = np.array([del_S_diff, T_diff, T_L_diff])
 
 # print("del_T0 " + str(analytic_del_T(E0, M0, X0)))
@@ -464,7 +466,7 @@ array_diff = np.array([H_diff, U_diff, del_T_diff, del_rho_diff])
 #plots first differential equations and second analytic solutions
 fig_num = 1
 
-
+"""
 for line_diff, line_analytic, label_d, label_a in zip(array_diff, array_analytic, labels_diff, labels_analytic):
     plt.figure(fig_num)
     plt.plot(s, line_diff, label=label_d)
@@ -483,12 +485,11 @@ for line_diff, line_analytic, label_d, label_a in zip(array_diff, array_analytic
 plt.figure(fig_num)
 plt.plot(s, phi_diff)
 plt.show()
-
 """
+
 for line_diff, label_d in zip(array_diff, labels_diff):
     plt.figure(fig_num)
     plt.plot(s, line_diff, label=label_d)
     plt.legend()
     plt.show()
     fig_num += 1
-"""
