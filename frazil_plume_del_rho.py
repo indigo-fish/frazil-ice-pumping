@@ -24,8 +24,7 @@ St = 1.1e-3 #heat transfer coefficient
 St_m = 3.1e-5 #salt transfer coefficient
 tau = 5.73e-2 #seawater freezing point slope
 T_m = 8.32e-2 #freezing point offset
-#lamda = 7.61e-4 #depth dependence of freezing point
-lamda = 0
+lamda = 7.61e-4 #depth dependence of freezing point
 L = 3.35e5 #latent heat of fusion for ice
 c_s = 2.009e3 #specific heat capacity for ice
 c_l = 3.974e3 #specific heat capacity for seawater
@@ -34,18 +33,18 @@ beta_T = 3.87e-5 #thermal expansion coefficient
 g = 9.81 #gravitational acceleration
 S_s = 0 #salt concentration in ice
 #I am choosing theta arbitrarily
-theta = 0.1
+theta = math.atan(1.86e-3)
 sin_theta = math.sin(theta)
 #S_a = 35 #ambient water salinity - specified in get_S_a(z) instead
 #I don't know rho_a, rho_l, rho_s
 rho_s = 916.8
 nu = 1.95e-6
 #T_a = 1 #ambient water temperature - specified in get_T_a(z) instead
-D = -200 #start depth
+D = -1400 #start depth
 U_T = 0
 
 #provides linear structure of density
-rho_l = 1024
+rho_l = 1028
 
 """
 functions which can be changed to specify different
@@ -53,13 +52,13 @@ temperature/salinity stratifications
 """
 def get_T_a(z):
     integral, error = quad(get_d_T_a_dz, D, z)
-    T_a = 0 + integral
+    T_a = -1.9 + integral
     #T_a = 0
     return T_a
 
 def get_S_a(z):
     integral, error = quad(get_d_S_a_dz, D, z)
-    S_a = 35 + integral
+    S_a = 34.5 + integral
     return S_a
 
 def get_rho_a(z):
@@ -68,10 +67,10 @@ def get_rho_a(z):
     return 1000 + rho_l * (beta_s * S_a + beta_T * (4 - T_a))
 
 def get_d_T_a_dz(z):
-    return 0
+    return (-2.18 + 1.9) / 1115
 
 def get_d_S_a_dz(z):
-    return 0
+    return (34.71-34.5) / 1115
 
 def get_d_rho_a_dz(z):
     return rho_l * (beta_s * get_d_S_a_dz(z) - beta_T * get_d_T_a_dz(z))
@@ -111,7 +110,7 @@ def get_M(T, S, z):
     b = get_b(T, S, z)
     c = get_c(T, S, z)
     #temporarily taking absolute value to make code run
-    result = (- b + math.sqrt((b ** 2 - 4 * a * c))) / (2 * a)
+    result = (- b + math.sqrt(abs(b ** 2 - 4 * a * c))) / (2 * a)
     return result
 
 def get_U(y):
@@ -216,25 +215,26 @@ def dy3_ds(y, z):
     temp = del_T_a * e + m * (T_eff - T_L_S_s) - lamda * sin_theta * y[0]
     #need to change factors of rho to account for specific, not volume, heat capacity
     result = temp + (c_s / c_l * T_i - (L / c_l + T_m + lamda * z)) * p + rho_s / rho_l * L / c_l * dy4_ds(y, z)
+    print(str(result) + " " + str(temp))
     return result
 
 def dy4_ds(y, z):
-    """
-    T = get_T(y)
-    S = get_S(y)
+    T = get_T(y, z)
+    S = get_S(y, z)
     T_L = get_T_L(S, z)
-    if T > T_L: result = 0
+    if T > T_L:
+        result = 0
     else:
         T_i = get_T_i(y, z)
+        S_i = get_S_i(y, z)
         U = get_U(y)
         p = get_p(y, z)
         e = E_0 * sin_theta * abs(U)
         m = get_M(T, S, z) * abs(U)
         T_a = get_T_a(z)
-        gamma_T = get_gamma_T(y)
-        temp = (T_m + lamda * z) * dy0_ds(y, z) - tau * dy3_ds(y, z) + lamda * y[0] * sin_theta - e * T_a - m * T_i - c_s / c_l * p * T_i + gamma_T * (T - T_i)
+        S_a = get_S_a(z)
+        temp = (T_m + lamda * z) * dy0_ds(y, z) - tau * (e * S_a + m * S_i - St_m * U * (S - S_i)) + lamda * y[0] * sin_theta - e * T_a - m * T_i - c_s / c_l * p * T_i + St * U * (T - T_i)
         result = (temp * rho_l * c_l / L + rho_l * p) / rho_s
-    """
     result = 0
     return result
 
@@ -242,20 +242,12 @@ def dy4_ds(y, z):
 re-expresses system of differential equations as a vector
 """
 def derivative(y, s):
-    z = D + s * sin_theta
+    z = D + s * sin_theta - get_H(y) / 2
     dy0 = dy0_ds(y, z)
     dy1 = dy1_ds(y, z)
     dy2 = dy2_ds(y, z)
     dy3 = dy3_ds(y, z)
     dy4 = dy4_ds(y, z)
-    U = get_U(y)
-    #e = E_0 * sin_theta * abs(U)
-    T = get_T(y, z)
-    S = get_S(y, z)
-    #m = get_M(T, S, z) * abs(U)
-    #T_i = get_T_i(y, z)
-    #alt_form_del_T = e * get_T_a(z) + m * T_i - St * abs(U) * (T - T_i)
-    #print(alt_form_del_T)
     return [dy0, dy1, dy2, dy3, dy4]
 
 """
@@ -336,7 +328,10 @@ while i < 40:
     del_rho0 = -1 * rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
     T_eff = get_T_eff(T_i0)
     rho_eff = rho_l * (beta_s * (S_a0 - S_s) - beta_T * (T_a0 - get_T_eff(T_i0)))
-    U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
+    #print(M0)
+    #print(del_rho0)
+    #temporarily taking absolute value to make code run
+    U0 = math.sqrt((2 * ((E0 + M0) / (3 * C_d + 4 * (E0 + M0))) * del_rho0 / rho_l * g * sin_theta * X0))
     T_i0, S_i0 = fsolve(solve_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
     i_vals.append(i)
     del_T_vals.append(del_T0)
@@ -352,9 +347,10 @@ y0_2 = H0 * U0 * del_rho0 / rho_l
 y0_3 = H0 * U0 * del_T0
 y0_4 = 0
 
-print(T0)
 #puts these initial values in a vector for solving equations
 y0 = [y0_0, y0_1, y0_2, y0_3, y0_4]
+
+#y0 = [9.20816705e-06,  8.04886127e-08,  9.61161561e-08, -5.18938969e-05, 3.59298686e-06]
 print(y0)
 
 #functions for calculating analytic values at locations other than initial point
@@ -362,7 +358,8 @@ def analytic_H(E, M, X):
     return 2 / 3 * (E + M) * X
 
 def analytic_U(E, M, X, T_i):
-    return math.sqrt(2 * (E + M) / (3 * C_d + 4 * (E + M))) * math.sqrt(analytic_del_rho(E, M, X, T_i) / rho_l * g * sin_theta * X)
+    #temporarily taking absolute value to make code run
+    return math.sqrt(abs(2 * (E + M) / (3 * C_d + 4 * (E + M)) * analytic_del_rho(E, M, X, T_i) / rho_l * g * sin_theta * X))
 
 def analytic_del_T(E, M, X):
     z = D + X * sin_theta
@@ -389,7 +386,7 @@ def analytic_values(X, E, M, T_i):
     del_rho = analytic_del_rho(E, M, X, T_i)
     return [H, U, del_T, del_rho]
 
-s = np.linspace(0, 100)
+s = np.linspace(0, 600)
 H_analytic = []
 U_analytic = []
 del_T_analytic = []
@@ -408,14 +405,16 @@ array_analytic = np.array([H_analytic, U_analytic, del_T_analytic, del_rho_analy
 #defines distances along slope to record results
 y = odeint(derivative, y0, s)
 
+print(y[49])
+
 H_diff = []
 U_diff = []
 del_T_diff = []
 del_rho_diff = []
 phi_diff = []
-del_S_diff = []
-T_diff = []
-T_L_diff = []
+#del_S_diff = []
+#T_diff = []
+#T_L_diff = []
 
 for vect, s0 in zip(y, s):
     z = D + s0 * sin_theta
@@ -424,14 +423,14 @@ for vect, s0 in zip(y, s):
     del_T_diff.append(get_T(vect, z) - get_T_L(get_S(vect, z), z))
     del_rho_diff.append(get_del_rho(vect))
     phi_diff.append(get_phi(vect, z))
-    del_S_diff.append(get_S(vect, z) - get_S_a(z))
-    T_diff.append(get_T(vect, z))
-    T_L_diff.append(get_T_L(get_S(vect, z), z))
+    #del_S_diff.append(get_S(vect, z) - get_S_a(z))
+    #T_diff.append(get_T(vect, z))
+    #T_L_diff.append(get_T_L(get_S(vect, z), z))
 labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_rho_diff"]
-labels_diff_2 = ["del_S_diff", "T_diff", "T_L_diff"]
+#labels_diff_2 = ["del_S_diff", "T_diff", "T_L_diff"]
 
 array_diff = np.array([H_diff, U_diff, del_T_diff, del_rho_diff])
-array_diff_2 = np.array([del_S_diff, T_diff, T_L_diff])
+#array_diff_2 = np.array([del_S_diff, T_diff, T_L_diff])
 
 # print("del_T0 " + str(analytic_del_T(E0, M0, X0)))
 # print("del_rho0 " + str(analytic_del_rho(E0, M0, X0)))
@@ -439,12 +438,8 @@ array_diff_2 = np.array([del_S_diff, T_diff, T_L_diff])
 # print("H0 " + str(analytic_H(E0, M0, X0)))
 
 #plots first differential equations and second analytic solutions
-"""
-currently there is barely any agreement at all
-between the two solutions, which should agree
-"""
-
 fig_num = 1
+
 
 for line_diff, line_analytic, label_d, label_a in zip(array_diff, array_analytic, labels_diff, labels_analytic):
     plt.figure(fig_num)
@@ -454,9 +449,22 @@ for line_diff, line_analytic, label_d, label_a in zip(array_diff, array_analytic
     plt.show()
     fig_num += 1
 
-for line_diff, label_d in zip(array_diff_2, labels_diff_2):
+# for line_diff, label_d in zip(array_diff_2, labels_diff_2):
+#     plt.figure(fig_num)
+#     plt.plot(s, line_diff, label=label_d)
+#     plt.legend()
+#     plt.show()
+#     fig_num += 1
+
+plt.figure(fig_num)
+plt.plot(s, phi_diff)
+plt.show()
+
+"""
+for line_diff, label_d in zip(array_diff, labels_diff):
     plt.figure(fig_num)
     plt.plot(s, line_diff, label=label_d)
     plt.legend()
     plt.show()
     fig_num += 1
+"""
