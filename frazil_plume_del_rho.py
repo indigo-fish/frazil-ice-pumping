@@ -42,6 +42,8 @@ nu = 1.95e-6
 #T_a = 1 #ambient water temperature - specified in get_T_a(z) instead
 D = -1400 #start depth
 U_T = 0
+get_R = 0
+my_precipitation = True
 
 #provides linear structure of density
 rho_l = 1028
@@ -169,14 +171,30 @@ def get_del_T_a(z):
 
 #calculates precipitation rate assuming Stokes drag/buoyancy balance and spherical ice crystals
 def get_p(y, z):
-    R = get_radius(y)
-    v_rel = 2 / 9 * R ** 2 * g / (nu * rho_l) #vertical ice velocity relative to surrounding liquid
-    phi = get_phi(y, z)
-    return - rho_s / rho_l * phi * v_rel
+    if my_precipitation:
+        #R = get_radius(y)
+        R = get_R
+        v_rel = 2 / 9 * R ** 2 * g * (rho_l - rho_s) / (nu * rho_l) #vertical ice velocity relative to surrounding liquid
+        phi = get_phi(y, z)
+        result = - rho_s / rho_l * phi * v_rel
+    else:
+        U = get_U(y)
+        epsilon = 0.02
+        r_e = (3 / 2 * epsilon) ** (1 / 3) * get_R
+        U_c = .05 * (rho_l - rho_s) / rho_l * g * 2 * r_e / C_d
+        phi = get_phi(y, z)
+        W_d = math.sqrt(2 * (rho_l - rho_s) / rho_l * g * 2 * epsilon * get_R / C_d)
+        #print(U_c)
+        #print(str(1 - U ** 2 / U_c ** 2) + " " + str(W_d))
+        if U < U_c:
+            result = - rho_s / rho_l * phi * W_d * math.sqrt(1 - sin_theta ** 2) * (1 - U ** 2 / U_c ** 2)
+        else:
+            result = 0
+    return result
 
-#need to figure out how to choose average radius of ice crystals!
-def get_radius(y):
-    return .5e-3
+# #need to figure out how to choose average radius of ice crystals!
+# def get_radius(y):
+#     return .5e-3
 
 #calculates phi by dividing U*phi / U
 def get_phi(y, z):
@@ -203,7 +221,7 @@ def dy0_ds(y, z):
     m = get_M(get_T(y, z), get_S(y, z), z) * abs(U)
     #need to figure out how to parameterize precipitation
     p = get_p(y, z)
-    return e + m + p
+    return [e + m + p, e, m, p]
 
 #derivative of H*U^2
 def dy1_ds(y, z):
@@ -211,8 +229,12 @@ def dy1_ds(y, z):
     U = get_U(y)
     phi = get_phi(y, z)
     delta_rho = get_del_rho(y)
-    result = g * sin_theta * H * (phi * (1 - rho_s / rho_l) + delta_rho / rho_l) - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
-    return result
+    liquid_buoyancy = g * sin_theta * H * delta_rho / rho_l
+    ice_buoyancy = g * sin_theta * H * phi * (1 - rho_s / rho_l)
+    drag = - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
+    #result = g * sin_theta * H * (phi * (1 - rho_s / rho_l) + delta_rho / rho_l) - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
+    result = liquid_buoyancy + ice_buoyancy + drag
+    return [result, liquid_buoyancy, ice_buoyancy, drag]
 
 #derivative of H*U*delta_rho / rho_l
 def dy2_ds(y, z):
@@ -224,11 +246,13 @@ def dy2_ds(y, z):
     T_a = get_T_a(z)
     T_i = get_T_i(y, z)
     p = get_p(y, z)
-    temp = drho_a_ds / rho_l * y[0] + del_rho_eff / rho_l * m
-    #need to change factors of rho to account for specific, not volume, heat capacity
-    result = temp + (beta_s * S_a - beta_T * (T_a - c_s / c_l * T_i)) * p + beta_T * rho_s / rho_l * L / c_l * dy4_ds(y, z)
-    print(result - temp)
-    return result
+    ambient_gradient = drho_a_ds / rho_l * y[0]
+    melt_density = del_rho_eff / rho_l * m
+    precip_heat = (beta_s * S_a - beta_T * (T_a - c_s / c_l * T_i)) * p
+    get_dy4 = dy4_ds(y, z)
+    phi_heat = beta_T * rho_s / rho_l * L / c_l * get_dy4[0]
+    result = ambient_gradient + melt_density + precip_heat + phi_heat
+    return [result, ambient_gradient, melt_density, precip_heat, phi_heat]
 
 #derivative of H*U*delta_T
 def dy3_ds(y, z):
@@ -240,10 +264,15 @@ def dy3_ds(y, z):
     T_eff = get_T_eff(T_i)
     T_L_S_s = get_T_L(S_s, z)
     p = get_p(y, z)
-    temp = del_T_a * e + m * (T_eff - T_L_S_s) - lamda * sin_theta * y[0]
-    #need to change factors of rho to account for specific, not volume, heat capacity
-    result = temp + (c_s / c_l * T_i - (L / c_l + T_m + lamda * z)) * p + rho_s / rho_l * L / c_l * dy4_ds(y, z)
-    return result
+    e_temp = del_T_a * e
+    m_temp = m * (T_eff - T_L_S_s)
+    depth_cooling = - lamda * sin_theta * y[0]
+    p_interfacial = c_s / c_l * T_i * p
+    p_latent = - (L / c_l + T_m + lamda * z) * p
+    get_dy4 = dy4_ds(y, z)
+    phi_latent = rho_s / rho_l * L / c_l * get_dy4[0]
+    result = e_temp + m_temp + depth_cooling + p_interfacial + p_latent + phi_latent
+    return [result, e_temp, m_temp, depth_cooling, p_interfacial, p_latent, phi_latent]
 
 #derivative of U*phi
 def dy4_ds(y, z):
@@ -251,7 +280,7 @@ def dy4_ds(y, z):
     S = get_S(y, z)
     T_L = get_T_L(S, z)
     if T > T_L:
-        result = 0
+        result = [0, 0, 0, 0, 0, 0, 0, 0, 0]
     else:
         T_i = get_T_i(y, z)
         S_i = get_S_i(y, z)
@@ -261,8 +290,17 @@ def dy4_ds(y, z):
         m = get_M(T, S, z) * abs(U)
         T_a = get_T_a(z)
         S_a = get_S_a(z)
-        temp = (T_m + lamda * z) * dy0_ds(y, z) - tau * (e * S_a + m * S_i - St_m * U * (S - S_i)) + lamda * y[0] * sin_theta - e * T_a - m * T_i - c_s / c_l * p * T_i + St * U * (T - T_i)
-        result = (temp * rho_l * c_l / L + rho_l * p) / rho_s
+        get_dy0 = dy0_ds(y, z)
+        transport_freezing = (T_m + lamda * z) * get_dy0[0] * rho_l * c_l / L / rho_s
+        salt_freezing = - tau * (e * S_a + m * S_i - St_m * U * (S - S_i)) * rho_l * c_l / L / rho_s
+        depth_freezing = lamda * y[0] * sin_theta * rho_l * c_l / L / rho_s
+        ambient = - e * T_a * rho_l * c_l / L / rho_s
+        interfacial = - m * T_i * rho_l * c_l / L / rho_s
+        p_latent = - c_s / c_l * p * T_i * rho_l * c_l / L / rho_s
+        heat_transp = St * U * (T - T_i) * rho_l * c_l / L / rho_s
+        p_vol = rho_l * p / rho_s
+        sum = transport_freezing + salt_freezing + depth_freezing + ambient + interfacial + p_latent + heat_transp + p_vol
+        result = [sum, transport_freezing, salt_freezing, depth_freezing, ambient, interfacial, p_latent, heat_transp, p_vol]
     return result
 
 """
@@ -275,7 +313,7 @@ def derivative(y, s):
     dy2 = dy2_ds(y, z)
     dy3 = dy3_ds(y, z)
     dy4 = dy4_ds(y, z)
-    return [dy0, dy1, dy2, dy3, dy4]
+    return [dy0[0], dy1[0], dy2[0], dy3[0], dy4[0]]
 
 """
 comes up with initial values using analytical solutions
@@ -378,118 +416,175 @@ y0 = [y0_0, y0_1, y0_2, y0_3, y0_4]
 #y0 = [9.20816705e-06,  8.04886127e-08,  9.61161561e-08, -5.18938969e-05, 3.59298686e-06]
 print(y0)
 
-#functions for calculating analytic values at locations other than initial point
-def analytic_H(E, M, X):
-    return 2 / 3 * (E + M) * X
+# #functions for calculating analytic values at locations other than initial point
+# def analytic_H(E, M, X):
+#     return 2 / 3 * (E + M) * X
 
-def analytic_U(E, M, X, T_i):
-    #temporarily taking absolute value to make code run
-    return math.sqrt(abs(2 * (E + M) / (3 * C_d + 4 * (E + M)) * analytic_del_rho(E, M, X, T_i) / rho_l * g * sin_theta * X))
+# def analytic_U(E, M, X, T_i):
+#     #temporarily taking absolute value to make code run
+#     return math.sqrt(abs(2 * (E + M) / (3 * C_d + 4 * (E + M)) * analytic_del_rho(E, M, X, T_i) / rho_l * g * sin_theta * X))
 
-def analytic_del_T(E, M, X):
-    z = get_z(0, X)
-    del_T_a = get_del_T_a(z)
-    #T_a = T_a0
-    result = (del_T_a * E + (get_T_eff(T_i0) - get_T_L(S_s, z)) * M) / (E + M)
-    return result
+# def analytic_del_T(E, M, X):
+#     z = get_z(0, X)
+#     del_T_a = get_del_T_a(z)
+#     #T_a = T_a0
+#     result = (del_T_a * E + (get_T_eff(T_i0) - get_T_L(S_s, z)) * M) / (E + M)
+#     return result
 
-def analytic_del_rho(E, M, X, T_i):
-    z = get_z(0, X)
-    S_a = get_S_a(z)
-    T_a = get_T_a(z)
-    #S_a = S_a0
-    #T_a = T_a0
-    T_eff = get_T_eff(T_i)
-    del_rho_eff = rho_l * (beta_s * (S_a - S_s) - beta_T * (T_a - T_eff))
-    return M / (E + M) * del_rho_eff
+# def analytic_del_rho(E, M, X, T_i):
+#     z = get_z(0, X)
+#     S_a = get_S_a(z)
+#     T_a = get_T_a(z)
+#     #S_a = S_a0
+#     #T_a = T_a0
+#     T_eff = get_T_eff(T_i)
+#     del_rho_eff = rho_l * (beta_s * (S_a - S_s) - beta_T * (T_a - T_eff))
+#     return M / (E + M) * del_rho_eff
 
-#converts analytic functions into vector
-def analytic_values(X, E, M, T_i):
-    H = analytic_H(E, M, X)
-    U = analytic_U(E, M, X, T_i)
-    del_T = analytic_del_T(E, M, X)
-    del_rho = analytic_del_rho(E, M, X, T_i)
-    return [H, U, del_T, del_rho]
-
-#defines distances along slope to record results
-s = np.linspace(0, 600e3)
-H_analytic = []
-U_analytic = []
-del_T_analytic = []
-del_rho_analytic = []
-#evaluates analytic functions at all points reported for differential equation solutions
-for s0 in s:
-    an_val = analytic_values(s0, E0, M0, T_i0)
-    H_analytic.append(an_val[0])
-    U_analytic.append(an_val[1])
-    del_T_analytic.append(an_val[2])
-    del_rho_analytic.append(an_val[3])
-labels_analytic = ["H_analytic", "U_analytic", "del_T_analytic", "del_rho_analytic"]
-
-array_analytic = np.array([H_analytic, U_analytic, del_T_analytic, del_rho_analytic])
+# #converts analytic functions into vector
+# def analytic_values(X, E, M, T_i):
+#     H = analytic_H(E, M, X)
+#     U = analytic_U(E, M, X, T_i)
+#     del_T = analytic_del_T(E, M, X)
+#     del_rho = analytic_del_rho(E, M, X, T_i)
+#     return [H, U, del_T, del_rho]
 
 #defines distances along slope to record results
-y = odeint(derivative, y0, s)
+list1 = np.linspace(0, 300e3, 25)
+list2 = np.linspace(300e3, 600e3, 150)
+s = np.concatenate((list1, list2))
 
-print(y[49])
+# H_analytic = []
+# U_analytic = []
+# del_T_analytic = []
+# del_rho_analytic = []
+# #evaluates analytic functions at all points reported for differential equation solutions
+# for s0 in s:
+#     an_val = analytic_values(s0, E0, M0, T_i0)
+#     H_analytic.append(an_val[0])
+#     U_analytic.append(an_val[1])
+#     del_T_analytic.append(an_val[2])
+#     del_rho_analytic.append(an_val[3])
+# labels_analytic = ["H_analytic", "U_analytic", "del_T_analytic", "del_rho_analytic"]
+# array_analytic = np.array([H_analytic, U_analytic, del_T_analytic, del_rho_analytic])
 
-H_diff = []
-U_diff = []
-del_T_diff = []
-del_rho_diff = []
-phi_diff = []
-#del_S_diff = []
-#T_diff = []
-#T_L_diff = []
+radii = [.01e-3, .05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
 
-for vect, s0 in zip(y, s):
-    z = get_z(get_H(vect), s0)
-    H_diff.append(get_H(vect))
-    U_diff.append(get_U(vect))
-    del_T_diff.append(get_T(vect, z) - get_T_L(get_S(vect, z), z))
-    del_rho_diff.append(get_del_rho(vect))
-    phi_diff.append(get_phi(vect, z))
-    #del_S_diff.append(get_S(vect, z) - get_S_a(z))
-    #T_diff.append(get_T(vect, z))
-    #T_L_diff.append(get_T_L(get_S(vect, z), z))
-labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_rho_diff", "phi_diff"]
-#labels_diff_2 = ["del_S_diff", "T_diff", "T_L_diff"]
+all_H = []
+all_U = []
+all_del_T = []
+all_del_rho = []
+all_phi = []
+titles = ["H", "U", "del_T", "del_rho", "phi"]
 
-array_diff = np.array([H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff])
-#array_diff_2 = np.array([del_S_diff, T_diff, T_L_diff])
-
-# print("del_T0 " + str(analytic_del_T(E0, M0, X0)))
-# print("del_rho0 " + str(analytic_del_rho(E0, M0, X0)))
-# print("U0 " + str(analytic_U(E0, M0, X0)))
-# print("H0 " + str(analytic_H(E0, M0, X0)))
-
-#plots first differential equations and second analytic solutions
+count = 0
 fig_num = 1
-
-"""
-for line_diff, line_analytic, label_d, label_a in zip(array_diff, array_analytic, labels_diff, labels_analytic):
+while (count < len(radii)):
+    get_R = radii[count]
+    #defines distances along slope to record results
+    y = odeint(derivative, y0, s)
+    
+    print(y[49])
+    
+    H_diff = []
+    U_diff = []
+    del_T_diff = []
+    del_rho_diff = []
+    phi_diff = []
+    #del_S_diff = []
+    #T_diff = []
+    #T_L_diff = []
+    dy0 = []
+    dy1 = []
+    dy2 = []
+    dy3 = []
+    dy4 = []
+    
+    for vect, s0 in zip(y, s):
+        z = get_z(get_H(vect), s0)
+        H = get_H(vect)
+        U = get_U(vect)
+        T = get_T(vect, z)
+        S = get_S(vect, z)
+        delta_rho = get_del_rho(vect)
+        phi = get_phi(vect, z)
+        H_diff.append(H)
+        U_diff.append(U)
+        del_T_diff.append(T - get_T_L(S, z))
+        del_rho_diff.append(delta_rho)
+        phi_diff.append(phi)
+        dy0.append(dy0_ds(vect, z))
+        dy1.append(dy1_ds(vect, z))
+        dy2.append(dy2_ds(vect, z))
+        dy3.append(dy3_ds(vect, z))
+        dy4.append(dy4_ds(vect, z))
+        #del_S_diff.append(get_S(vect, z) - get_S_a(z))
+        #T_diff.append(get_T(vect, z))
+        #T_L_diff.append(get_T_L(get_S(vect, z), z))
+    all_H.append(H_diff)
+    all_U.append(U_diff)
+    all_del_T.append(del_T_diff)
+    all_del_rho.append(del_rho_diff)
+    all_phi.append(phi_diff)
+    all_dy = [dy0, dy1, dy2, dy3, dy4]
+    
+    dy0_labels = ["total", "entrainment", "melting", "precipitation"]
+    dy1_labels = ["total", "liquid buoyancy", "ice buoyancy", "drag"]
+    dy2_labels = ["total", "ambient gradient", "melt density", "precipitated heat", "frazil heat"]
+    dy3_labels = ["total", "ambient temp", "melt temp", "depth cooling", "interfacial temp", "latent precipitation", "latent frazil"]
+    dy4_labels = ["total", "transport freezing", "salt freezing", "depth freezing", "ambient melting", "interfacial frazil", "latent precipitation", "heat transport", "volume precipitation"]
+    dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
+    all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
+    
+    labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_rho_diff", "phi_diff"]
+    array_diff = np.array([H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff])
+    
+    #plots first differential equations and second analytic solutions
+    
+    """
+    for line_diff, line_analytic, label_d, label_a in zip(array_diff, array_analytic, labels_diff, labels_analytic):
+        plt.figure(fig_num)
+        plt.plot(s, line_diff, label=label_d)
+        plt.plot(s, line_analytic, label=label_a)
+        plt.legend()
+        plt.show()
+        fig_num += 1
+    
+    # for line_diff, label_d in zip(array_diff_2, labels_diff_2):
+    #     plt.figure(fig_num)
+    #     plt.plot(s, line_diff, label=label_d)
+    #     plt.legend()
+    #     plt.show()
+    #     fig_num += 1
+    
     plt.figure(fig_num)
-    plt.plot(s, line_diff, label=label_d)
-    plt.plot(s, line_analytic, label=label_a)
-    plt.legend()
+    plt.plot(s, phi_diff)
     plt.show()
-    fig_num += 1
+    """
+    
+    # for line_diff, label_d in zip(array_diff, labels_diff):
+    #     plt.figure(fig_num)
+    #     plt.plot(s, line_diff, label=label_d, marker='.')
+    #     plt.legend()
+    #     plt.title(str(get_R) + "m radius")
+    #     plt.show()
+    #     fig_num += 1
+    for dy, dy_title, dy_labels in zip (all_dy, dy_titles, all_dy_labels):
+        plt.figure(fig_num)
+        plt.plot(s, dy, marker='.')
+        plt.title(dy_title + " with radius: " + str(get_R))
+        plt.legend(dy_labels)
+        plt.show()
+        fig_num += 1
+    count += 1
 
-# for line_diff, label_d in zip(array_diff_2, labels_diff_2):
-#     plt.figure(fig_num)
-#     plt.plot(s, line_diff, label=label_d)
-#     plt.legend()
-#     plt.show()
-#     fig_num += 1
+all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi]
 
-plt.figure(fig_num)
-plt.plot(s, phi_diff)
-plt.show()
-"""
-
-for line_diff, label_d in zip(array_diff, labels_diff):
-    plt.figure(fig_num)
-    plt.plot(s, line_diff, label=label_d)
+for array_set, var_title in zip(all_arrays, titles):
+    for var_array, r_label in zip(array_set, radii):
+        plt.figure(fig_num)
+        plt.plot(s, var_array, label=str(r_label), marker='.')
+    plt.title(var_title)
     plt.legend()
     plt.show()
     fig_num += 1
