@@ -44,6 +44,7 @@ D = -1400 #start depth
 U_T = 0
 get_R = 0
 my_precipitation = True
+Jenkins_ambient = True
 
 #provides linear structure of density
 rho_l = 1028
@@ -56,7 +57,10 @@ temperature/salinity stratifications
 #starting from known T_a at D
 def get_T_a(z):
     integral, error = quad(get_d_T_a_dz, D, z)
-    T_a = -1.9 + integral
+    if Jenkins_ambient:
+        T_a = -1.9 + integral
+    else:
+        T_a = -2.05 + integral
     #T_a = 0
     return T_a
 
@@ -64,7 +68,10 @@ def get_T_a(z):
 #starting from known S_a at D
 def get_S_a(z):
     integral, error = quad(get_d_S_a_dz, D, z)
-    S_a = 34.5 + integral
+    if Jenkins_ambient:
+        S_a = 34.5 + integral
+    else:
+        S_a = 34.65
     return S_a
 
 #calculates rho_a as a function of T_a and S_a (which depend on depth)
@@ -75,11 +82,17 @@ def get_rho_a(z):
 
 #specifies rate of change of T_a with depth
 def get_d_T_a_dz(z):
-    return (-2.18 + 1.9) / 1115
+    if Jenkins_ambient:
+        return (-2.18 + 1.9) / 1115
+    else:
+        return (-1.85 + 2.05) / 1115
 
 #specifies rate of change of S_a with depth
 def get_d_S_a_dz(z):
-    return (34.71-34.5) / 1115
+    if Jenkins_ambient:
+        return (34.71 - 34.5) / 1115
+    else:
+        return (34.35 - 34.65) / 1115
 
 #calculates rate of change of rho_a with depth
 def get_d_rho_a_dz(z):
@@ -196,10 +209,15 @@ def get_p(y, z):
 # def get_radius(y):
 #     return .5e-3
 
+#returns velocity of ice sheet at given distance from grounding line
+def get_sheet_v(s):
+    return 1
+
 #calculates phi by dividing U*phi / U
 def get_phi(y, z):
     return y[4] / get_U(y)
 
+#calculates depth at center of plume as a function of distance along shelf
 def get_z(H, s):
     return D + s * sin_theta - H / 2
 
@@ -222,6 +240,7 @@ def dy0_ds(y, z):
     #need to figure out how to parameterize precipitation
     p = get_p(y, z)
     return [e + m + p, e, m, p]
+    #return [e + m, 0, 0, 0]
 
 #derivative of H*U^2
 def dy1_ds(y, z):
@@ -235,6 +254,7 @@ def dy1_ds(y, z):
     #result = g * sin_theta * H * (phi * (1 - rho_s / rho_l) + delta_rho / rho_l) - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
     result = liquid_buoyancy + ice_buoyancy + drag
     return [result, liquid_buoyancy, ice_buoyancy, drag]
+    #return [liquid_buoyancy + drag, 0, 0, 0]
 
 #derivative of H*U*delta_rho / rho_l
 def dy2_ds(y, z):
@@ -253,6 +273,10 @@ def dy2_ds(y, z):
     phi_heat = beta_T * rho_s / rho_l * L / c_l * get_dy4[0]
     result = ambient_gradient + melt_density + precip_heat + phi_heat
     return [result, ambient_gradient, melt_density, precip_heat, phi_heat]
+    # if get_T(y, z) < get_T_L(get_S(y, z), z):
+    #     return [melt_density + ambient_gradient, 0, 0, 0, 0]
+    # else:
+    #     return [ambient_gradient + precip_heat, 0, 0, 0, 0]
 
 #derivative of H*U*delta_T
 def dy3_ds(y, z):
@@ -273,6 +297,10 @@ def dy3_ds(y, z):
     phi_latent = rho_s / rho_l * L / c_l * get_dy4[0]
     result = e_temp + m_temp + depth_cooling + p_interfacial + p_latent + phi_latent
     return [result, e_temp, m_temp, depth_cooling, p_interfacial, p_latent, phi_latent]
+    # if get_T(y, z) < get_T_L(get_S(y, z), z):
+    #     return [e_temp + m_temp + depth_cooling, 0, 0, 0, 0, 0, 0]
+    # else:
+    #     return [e_temp + depth_cooling + p_latent, 0, 0, 0, 0, 0, 0]
 
 #derivative of U*phi
 def dy4_ds(y, z):
@@ -451,7 +479,7 @@ print(y0)
 
 #defines distances along slope to record results
 list1 = np.linspace(0, 300e3, 25)
-list2 = np.linspace(300e3, 600e3, 150)
+list2 = np.linspace(300e3, 800e3, 150)
 s = np.concatenate((list1, list2))
 
 # H_analytic = []
@@ -475,7 +503,9 @@ all_U = []
 all_del_T = []
 all_del_rho = []
 all_phi = []
-titles = ["H", "U", "del_T", "del_rho", "phi"]
+all_p = []
+all_ice_depths = []
+titles = ["H", "U", "del_T", "del_rho", "phi", "precipitation", "accumulation"]
 
 count = 0
 fig_num = 1
@@ -491,6 +521,7 @@ while (count < len(radii)):
     del_T_diff = []
     del_rho_diff = []
     phi_diff = []
+    p_levels = []
     #del_S_diff = []
     #T_diff = []
     #T_L_diff = []
@@ -499,6 +530,8 @@ while (count < len(radii)):
     dy2 = []
     dy3 = []
     dy4 = []
+    ice_depth = 0
+    ice_depths = []
     
     for vect, s0 in zip(y, s):
         z = get_z(get_H(vect), s0)
@@ -506,6 +539,7 @@ while (count < len(radii)):
         U = get_U(vect)
         T = get_T(vect, z)
         S = get_S(vect, z)
+        p = get_p(vect, z)
         delta_rho = get_del_rho(vect)
         phi = get_phi(vect, z)
         H_diff.append(H)
@@ -513,11 +547,14 @@ while (count < len(radii)):
         del_T_diff.append(T - get_T_L(S, z))
         del_rho_diff.append(delta_rho)
         phi_diff.append(phi)
+        p_levels.append(abs(p))
         dy0.append(dy0_ds(vect, z))
         dy1.append(dy1_ds(vect, z))
         dy2.append(dy2_ds(vect, z))
         dy3.append(dy3_ds(vect, z))
         dy4.append(dy4_ds(vect, z))
+        ice_depth += abs(p) * 1 / get_sheet_v(s0)
+        ice_depths.append(ice_depth)
         #del_S_diff.append(get_S(vect, z) - get_S_a(z))
         #T_diff.append(get_T(vect, z))
         #T_L_diff.append(get_T_L(get_S(vect, z), z))
@@ -526,18 +563,20 @@ while (count < len(radii)):
     all_del_T.append(del_T_diff)
     all_del_rho.append(del_rho_diff)
     all_phi.append(phi_diff)
+    all_p.append(p_levels)
+    all_ice_depths.append(ice_depths)
     all_dy = [dy0, dy1, dy2, dy3, dy4]
     
     dy0_labels = ["total", "entrainment", "melting", "precipitation"]
     dy1_labels = ["total", "liquid buoyancy", "ice buoyancy", "drag"]
     dy2_labels = ["total", "ambient gradient", "melt density", "precipitated heat", "frazil heat"]
     dy3_labels = ["total", "ambient temp", "melt temp", "depth cooling", "interfacial temp", "latent precipitation", "latent frazil"]
-    dy4_labels = ["total", "transport freezing", "salt freezing", "depth freezing", "ambient melting", "interfacial frazil", "latent precipitation", "heat transport", "volume precipitation"]
+    dy4_labels = ["total", "transport freezing", "salt freezing + ambient melting", "depth freezing", "ambient melting", "interfacial frazil", "latent precipitation", "heat transport", "volume precipitation"]
     dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
     all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
     
-    labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_rho_diff", "phi_diff"]
-    array_diff = np.array([H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff])
+    #labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_rho_diff", "phi_diff"]
+    #array_diff = np.array([H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff])
     
     #plots first differential equations and second analytic solutions
     
@@ -569,16 +608,16 @@ while (count < len(radii)):
     #     plt.title(str(get_R) + "m radius")
     #     plt.show()
     #     fig_num += 1
-    for dy, dy_title, dy_labels in zip (all_dy, dy_titles, all_dy_labels):
-        plt.figure(fig_num)
-        plt.plot(s, dy, marker='.')
-        plt.title(dy_title + " with radius: " + str(get_R))
-        plt.legend(dy_labels)
-        plt.show()
-        fig_num += 1
+    # for dy, dy_title, dy_labels in zip (all_dy, dy_titles, all_dy_labels):
+    #     plt.figure(fig_num)
+    #     plt.plot(s, dy, marker='.')
+    #     plt.title(dy_title + " with radius: " + str(get_R))
+    #     plt.legend(dy_labels)
+    #     plt.show()
+    #     fig_num += 1
     count += 1
 
-all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi]
+all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi, all_p, all_ice_depths]
 
 for array_set, var_title in zip(all_arrays, titles):
     for var_array, r_label in zip(array_set, radii):
