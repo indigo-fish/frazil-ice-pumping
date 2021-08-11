@@ -196,18 +196,31 @@ def get_p(y, z):
         r_e = (3 / 2 * epsilon) ** (1 / 3) * get_R
         U_c = .05 * (rho_l - rho_s) / rho_l * g * 2 * r_e / C_d
         phi = get_phi(y, z)
-        W_d = math.sqrt(2 * (rho_l - rho_s) / rho_l * g * 2 * epsilon * get_R / C_d)
+        Re = get_reynolds(y)
+        local_drag = get_local_drag(Re)
+        W_d = math.sqrt(2 * (rho_l - rho_s) / rho_l * g * 2 * epsilon * get_R / local_drag)
         #print(U_c)
         #print(str(1 - U ** 2 / U_c ** 2) + " " + str(W_d))
         if U < U_c:
             result = - rho_s / rho_l * phi * W_d * math.sqrt(1 - sin_theta ** 2) * (1 - U ** 2 / U_c ** 2)
         else:
             result = 0
+        result = - rho_s / rho_l * phi * W_d * math.sqrt(1 - sin_theta ** 2)
     return result
 
 # #need to figure out how to choose average radius of ice crystals!
 # def get_radius(y):
 #     return .5e-3
+
+def get_local_drag(Re):
+    log_Re = math.log10(Re)
+    log_drag = 1.386 - .892 * log_Re + .111 * log_Re ** 2
+    return 10 ** log_drag
+
+#calculates Reynolds number by dividing HU / kinematic viscosity
+def get_reynolds(y):
+    result = abs(y[0] / nu)
+    return result
 
 #returns velocity of ice sheet at given distance from grounding line
 def get_sheet_v(s):
@@ -442,7 +455,7 @@ y0_4 = 0
 y0 = [y0_0, y0_1, y0_2, y0_3, y0_4]
 
 #y0 = [9.20816705e-06,  8.04886127e-08,  9.61161561e-08, -5.18938969e-05, 3.59298686e-06]
-print(y0)
+#print(y0)
 
 # #functions for calculating analytic values at locations other than initial point
 # def analytic_H(E, M, X):
@@ -479,7 +492,7 @@ print(y0)
 
 #defines distances along slope to record results
 list1 = np.linspace(0, 300e3, 25)
-list2 = np.linspace(300e3, 800e3, 150)
+list2 = np.linspace(300e3, 600e3, 150)
 s = np.concatenate((list1, list2))
 
 # H_analytic = []
@@ -497,6 +510,9 @@ s = np.concatenate((list1, list2))
 # array_analytic = np.array([H_analytic, U_analytic, del_T_analytic, del_rho_analytic])
 
 radii = [.01e-3, .05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
+#radii = [.01e-3, .03e-3, .05e-3, .07e-3, .09e-3, .1e-3, .3e-3, .5e-3, .7e-3, .9e-3, 1e-3, 3e-3, 5e-3]
+#radii = np.linspace(.01e-3, 5e-3)
+#radii = [.05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
 
 all_H = []
 all_U = []
@@ -505,6 +521,18 @@ all_del_rho = []
 all_phi = []
 all_p = []
 all_ice_depths = []
+end_phi = []
+mid_phi = []
+ln_r = []
+# all_dy4_t = []
+# all_transport = []
+# all_salt = []
+# all_depth = []
+# all_ambient = []
+# all_interfacial = []
+# all_precip = []
+# all_heat = []
+# all_vol = []
 titles = ["H", "U", "del_T", "del_rho", "phi", "precipitation", "accumulation"]
 
 count = 0
@@ -514,7 +542,7 @@ while (count < len(radii)):
     #defines distances along slope to record results
     y = odeint(derivative, y0, s)
     
-    print(y[49])
+    #print(y[49])
     
     H_diff = []
     U_diff = []
@@ -525,13 +553,22 @@ while (count < len(radii)):
     #del_S_diff = []
     #T_diff = []
     #T_L_diff = []
-    dy0 = []
-    dy1 = []
-    dy2 = []
-    dy3 = []
-    dy4 = []
+    # dy0 = []
+    # dy1 = []
+    # dy2 = []
+    # dy3 = []
+    # dy4 = []
     ice_depth = 0
     ice_depths = []
+    # dy4_t = []
+    # transport = []
+    # salt = []
+    # depth = []
+    # ambient = []
+    # interfacial = []
+    # precip = []
+    # heat = []
+    # vol = []
     
     for vect, s0 in zip(y, s):
         z = get_z(get_H(vect), s0)
@@ -546,34 +583,66 @@ while (count < len(radii)):
         U_diff.append(U)
         del_T_diff.append(T - get_T_L(S, z))
         del_rho_diff.append(delta_rho)
-        phi_diff.append(phi)
+        phi_diff.append(phi * get_R ** 2)
         p_levels.append(abs(p))
-        dy0.append(dy0_ds(vect, z))
-        dy1.append(dy1_ds(vect, z))
-        dy2.append(dy2_ds(vect, z))
-        dy3.append(dy3_ds(vect, z))
-        dy4.append(dy4_ds(vect, z))
-        ice_depth += abs(p) * 1 / get_sheet_v(s0)
-        ice_depths.append(ice_depth)
+        # dy0.append(dy0_ds(vect, z))
+        # dy1.append(dy1_ds(vect, z))
+        # dy2.append(dy2_ds(vect, z))
+        # dy3.append(dy3_ds(vect, z))
+        # dy4.append(dy4_ds(vect, z))
+        # dy4_ds0 = dy4_ds(vect, z)
+        # dy4_t.append(dy4_ds0[0])
+        # transport.append(dy4_ds0[1])
+        # salt.append(dy4_ds0[2])
+        # depth.append(dy4_ds0[3])
+        # ambient.append(dy4_ds0[4])
+        # interfacial.append(dy4_ds0[5])
+        # precip.append(dy4_ds0[6])
+        # heat.append(dy4_ds0[7])
+        # vol.append(dy4_ds0[8])
         #del_S_diff.append(get_S(vect, z) - get_S_a(z))
         #T_diff.append(get_T(vect, z))
         #T_L_diff.append(get_T_L(get_S(vect, z), z))
+    
+    index = 1
+    ice_depths.append(0)
+    while index < len(s):
+        s0 = s[index - 1]
+        ice_depth += p_levels[index] * (s[index] - s0) / get_sheet_v(s0)
+        ice_depths.append(ice_depth)
+        index += 1
+    
     all_H.append(H_diff)
     all_U.append(U_diff)
     all_del_T.append(del_T_diff)
     all_del_rho.append(del_rho_diff)
     all_phi.append(phi_diff)
+    end_phi.append(math.log(phi_diff[len(phi_diff) - 1]))
+    mid_phi.append(math.log(phi_diff[int(len(phi_diff) / 2)]))
+    ln_r.append(math.log(get_R))
     all_p.append(p_levels)
     all_ice_depths.append(ice_depths)
-    all_dy = [dy0, dy1, dy2, dy3, dy4]
+    # all_dy4_t.append(dy4_t)
+    # all_transport.append(transport)
+    # all_salt.append(salt)
+    # all_depth.append(depth)
+    # all_ambient.append(ambient)
+    # all_interfacial.append(ambient)
+    # all_precip.append(precip)
+    # all_heat.append(heat)
+    # all_vol.append(vol)
+    #all_dy = [dy0, dy1, dy2, dy3, dy4]
+    #all_dy = dy4
     
-    dy0_labels = ["total", "entrainment", "melting", "precipitation"]
-    dy1_labels = ["total", "liquid buoyancy", "ice buoyancy", "drag"]
-    dy2_labels = ["total", "ambient gradient", "melt density", "precipitated heat", "frazil heat"]
-    dy3_labels = ["total", "ambient temp", "melt temp", "depth cooling", "interfacial temp", "latent precipitation", "latent frazil"]
-    dy4_labels = ["total", "transport freezing", "salt freezing + ambient melting", "depth freezing", "ambient melting", "interfacial frazil", "latent precipitation", "heat transport", "volume precipitation"]
-    dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
-    all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
+    # dy0_labels = ["total", "entrainment", "melting", "precipitation"]
+    # dy1_labels = ["total", "liquid buoyancy", "ice buoyancy", "drag"]
+    # dy2_labels = ["total", "ambient gradient", "melt density", "precipitated heat", "frazil heat"]
+    # dy3_labels = ["total", "ambient temp", "melt temp", "depth cooling", "interfacial temp", "latent precipitation", "latent frazil"]
+    # dy4_labels = ["total", "transport freezing", "salt freezing", "depth freezing", "ambient melting", "interfacial frazil", "latent precipitation", "heat transport", "volume precipitation"]
+    # dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
+    #dy_titles = ["d(U phi)/ds"]
+    # all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
+    #all_dy_labels = [dy4_labels]
     
     #labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_rho_diff", "phi_diff"]
     #array_diff = np.array([H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff])
@@ -615,9 +684,11 @@ while (count < len(radii)):
     #     plt.legend(dy_labels)
     #     plt.show()
     #     fig_num += 1
+    
     count += 1
 
 all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi, all_p, all_ice_depths]
+# all_2 = [all_dy4_t, all_transport, all_salt, all_depth, all_ambient, all_interfacial, all_precip, all_heat, all_vol]
 
 for array_set, var_title in zip(all_arrays, titles):
     for var_array, r_label in zip(array_set, radii):
@@ -627,3 +698,31 @@ for array_set, var_title in zip(all_arrays, titles):
     plt.legend()
     plt.show()
     fig_num += 1
+
+plt.figure(fig_num)
+plt.scatter(ln_r, end_phi)
+m, b = np.polyfit(ln_r, end_phi, 1)
+x = np.array(ln_r)
+plt.plot(x, m * x + b)
+plt.show()
+fig_num += 1
+
+plt.figure(fig_num)
+plt.scatter(ln_r, mid_phi)
+plt.show()
+
+plt.figure(fig_num)
+
+# for elem in all_2:
+#     for row, r_label in zip(elem, radii):
+#         plt.figure(fig_num)
+#         plt.plot(s[40:175], row[40:175], label=str(r_label), marker='.')
+#     plt.legend()
+#     plt.show()
+#     fig_num += 1
+
+# for term in all_dy4:
+#     plt.figure(fig_num)
+#     plt.plot(s, var_array, marker='.')
+#     plt.show()
+#     fig_num += 1
