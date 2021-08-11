@@ -41,10 +41,10 @@ rho_s = 916.8
 nu = 1.95e-6
 #T_a = 1 #ambient water temperature - specified in get_T_a(z) instead
 D = -1400 #start depth
-U_T = 0
-get_R = 0
-my_precipitation = True
-Jenkins_ambient = True
+U_T = 0 #tide velocity
+get_R = 0 #global variable for radius set by later code
+my_precipitation = True #chooses between Stokes and Jenkins drag
+Jenkins_ambient = True #chooses between ideal and Amery ice shelf conditions
 
 #provides linear structure of density
 rho_l = 1028
@@ -185,7 +185,6 @@ def get_del_T_a(z):
 #calculates precipitation rate assuming Stokes drag/buoyancy balance and spherical ice crystals
 def get_p(y, z):
     if my_precipitation:
-        #R = get_radius(y)
         R = get_R
         v_rel = 2 / 9 * R ** 2 * g * (rho_l - rho_s) / (nu * rho_l) #vertical ice velocity relative to surrounding liquid
         phi = get_phi(y, z)
@@ -208,10 +207,7 @@ def get_p(y, z):
         result = - rho_s / rho_l * phi * W_d * math.sqrt(1 - sin_theta ** 2)
     return result
 
-# #need to figure out how to choose average radius of ice crystals!
-# def get_radius(y):
-#     return .5e-3
-
+#calculates local drag coefficient used in Jenkins precipitation velocity
 def get_local_drag(Re):
     log_Re = math.log10(Re)
     log_drag = 1.386 - .892 * log_Re + .111 * log_Re ** 2
@@ -253,7 +249,6 @@ def dy0_ds(y, z):
     #need to figure out how to parameterize precipitation
     p = get_p(y, z)
     return [e + m + p, e, m, p]
-    #return [e + m, 0, 0, 0]
 
 #derivative of H*U^2
 def dy1_ds(y, z):
@@ -267,7 +262,6 @@ def dy1_ds(y, z):
     #result = g * sin_theta * H * (phi * (1 - rho_s / rho_l) + delta_rho / rho_l) - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
     result = liquid_buoyancy + ice_buoyancy + drag
     return [result, liquid_buoyancy, ice_buoyancy, drag]
-    #return [liquid_buoyancy + drag, 0, 0, 0]
 
 #derivative of H*U*delta_rho / rho_l
 def dy2_ds(y, z):
@@ -286,10 +280,6 @@ def dy2_ds(y, z):
     phi_heat = beta_T * rho_s / rho_l * L / c_l * get_dy4[0]
     result = ambient_gradient + melt_density + precip_heat + phi_heat
     return [result, ambient_gradient, melt_density, precip_heat, phi_heat]
-    # if get_T(y, z) < get_T_L(get_S(y, z), z):
-    #     return [melt_density + ambient_gradient, 0, 0, 0, 0]
-    # else:
-    #     return [ambient_gradient + precip_heat, 0, 0, 0, 0]
 
 #derivative of H*U*delta_T
 def dy3_ds(y, z):
@@ -310,10 +300,6 @@ def dy3_ds(y, z):
     phi_latent = rho_s / rho_l * L / c_l * get_dy4[0]
     result = e_temp + m_temp + depth_cooling + p_interfacial + p_latent + phi_latent
     return [result, e_temp, m_temp, depth_cooling, p_interfacial, p_latent, phi_latent]
-    # if get_T(y, z) < get_T_L(get_S(y, z), z):
-    #     return [e_temp + m_temp + depth_cooling, 0, 0, 0, 0, 0, 0]
-    # else:
-    #     return [e_temp + depth_cooling + p_latent, 0, 0, 0, 0, 0, 0]
 
 #derivative of U*phi
 def dy4_ds(y, z):
@@ -455,274 +441,192 @@ y0_4 = 0
 y0 = [y0_0, y0_1, y0_2, y0_3, y0_4]
 
 #y0 = [9.20816705e-06,  8.04886127e-08,  9.61161561e-08, -5.18938969e-05, 3.59298686e-06]
-#print(y0)
-
-# #functions for calculating analytic values at locations other than initial point
-# def analytic_H(E, M, X):
-#     return 2 / 3 * (E + M) * X
-
-# def analytic_U(E, M, X, T_i):
-#     #temporarily taking absolute value to make code run
-#     return math.sqrt(abs(2 * (E + M) / (3 * C_d + 4 * (E + M)) * analytic_del_rho(E, M, X, T_i) / rho_l * g * sin_theta * X))
-
-# def analytic_del_T(E, M, X):
-#     z = get_z(0, X)
-#     del_T_a = get_del_T_a(z)
-#     #T_a = T_a0
-#     result = (del_T_a * E + (get_T_eff(T_i0) - get_T_L(S_s, z)) * M) / (E + M)
-#     return result
-
-# def analytic_del_rho(E, M, X, T_i):
-#     z = get_z(0, X)
-#     S_a = get_S_a(z)
-#     T_a = get_T_a(z)
-#     #S_a = S_a0
-#     #T_a = T_a0
-#     T_eff = get_T_eff(T_i)
-#     del_rho_eff = rho_l * (beta_s * (S_a - S_s) - beta_T * (T_a - T_eff))
-#     return M / (E + M) * del_rho_eff
-
-# #converts analytic functions into vector
-# def analytic_values(X, E, M, T_i):
-#     H = analytic_H(E, M, X)
-#     U = analytic_U(E, M, X, T_i)
-#     del_T = analytic_del_T(E, M, X)
-#     del_rho = analytic_del_rho(E, M, X, T_i)
-#     return [H, U, del_T, del_rho]
+print(y0)
 
 #defines distances along slope to record results
 list1 = np.linspace(0, 300e3, 25)
 list2 = np.linspace(300e3, 600e3, 150)
 s = np.concatenate((list1, list2))
 
-# H_analytic = []
-# U_analytic = []
-# del_T_analytic = []
-# del_rho_analytic = []
-# #evaluates analytic functions at all points reported for differential equation solutions
-# for s0 in s:
-#     an_val = analytic_values(s0, E0, M0, T_i0)
-#     H_analytic.append(an_val[0])
-#     U_analytic.append(an_val[1])
-#     del_T_analytic.append(an_val[2])
-#     del_rho_analytic.append(an_val[3])
-# labels_analytic = ["H_analytic", "U_analytic", "del_T_analytic", "del_rho_analytic"]
-# array_analytic = np.array([H_analytic, U_analytic, del_T_analytic, del_rho_analytic])
-
-radii = [.01e-3, .05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
-#radii = [.01e-3, .03e-3, .05e-3, .07e-3, .09e-3, .1e-3, .3e-3, .5e-3, .7e-3, .9e-3, 1e-3, 3e-3, 5e-3]
-#radii = np.linspace(.01e-3, 5e-3)
-#radii = [.05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
-
-all_H = []
-all_U = []
-all_del_T = []
-all_del_rho = []
-all_phi = []
-all_p = []
-all_ice_depths = []
-end_phi = []
-mid_phi = []
-ln_r = []
-# all_dy4_t = []
-# all_transport = []
-# all_salt = []
-# all_depth = []
-# all_ambient = []
-# all_interfacial = []
-# all_precip = []
-# all_heat = []
-# all_vol = []
-titles = ["H", "U", "del_T", "del_rho", "phi", "precipitation", "accumulation"]
-
-count = 0
-fig_num = 1
-while (count < len(radii)):
-    get_R = radii[count]
-    #defines distances along slope to record results
-    y = odeint(derivative, y0, s)
-    
-    #print(y[49])
-    
+#given solutions of differential equations
+#creates arrays of more meaningful quantities H, U, del_T, del_rho, phi
+def basic_arrays_from_y(s, y):
     H_diff = []
     U_diff = []
     del_T_diff = []
     del_rho_diff = []
     phi_diff = []
-    p_levels = []
-    #del_S_diff = []
-    #T_diff = []
-    #T_L_diff = []
-    # dy0 = []
-    # dy1 = []
-    # dy2 = []
-    # dy3 = []
-    # dy4 = []
-    ice_depth = 0
-    ice_depths = []
-    # dy4_t = []
-    # transport = []
-    # salt = []
-    # depth = []
-    # ambient = []
-    # interfacial = []
-    # precip = []
-    # heat = []
-    # vol = []
-    
-    for vect, s0 in zip(y, s):
+    for (vect, s0) in zip(y, s):
         z = get_z(get_H(vect), s0)
         H = get_H(vect)
         U = get_U(vect)
         T = get_T(vect, z)
         S = get_S(vect, z)
-        p = get_p(vect, z)
         delta_rho = get_del_rho(vect)
         phi = get_phi(vect, z)
         H_diff.append(H)
         U_diff.append(U)
         del_T_diff.append(T - get_T_L(S, z))
         del_rho_diff.append(delta_rho)
-        phi_diff.append(phi * get_R ** 2)
-        p_levels.append(abs(p))
-        # dy0.append(dy0_ds(vect, z))
-        # dy1.append(dy1_ds(vect, z))
-        # dy2.append(dy2_ds(vect, z))
-        # dy3.append(dy3_ds(vect, z))
-        # dy4.append(dy4_ds(vect, z))
-        # dy4_ds0 = dy4_ds(vect, z)
-        # dy4_t.append(dy4_ds0[0])
-        # transport.append(dy4_ds0[1])
-        # salt.append(dy4_ds0[2])
-        # depth.append(dy4_ds0[3])
-        # ambient.append(dy4_ds0[4])
-        # interfacial.append(dy4_ds0[5])
-        # precip.append(dy4_ds0[6])
-        # heat.append(dy4_ds0[7])
-        # vol.append(dy4_ds0[8])
-        #del_S_diff.append(get_S(vect, z) - get_S_a(z))
-        #T_diff.append(get_T(vect, z))
-        #T_L_diff.append(get_T_L(get_S(vect, z), z))
-    
-    index = 1
-    ice_depths.append(0)
-    while index < len(s):
-        s0 = s[index - 1]
-        ice_depth += p_levels[index] * (s[index] - s0) / get_sheet_v(s0)
-        ice_depths.append(ice_depth)
-        index += 1
-    
-    all_H.append(H_diff)
-    all_U.append(U_diff)
-    all_del_T.append(del_T_diff)
-    all_del_rho.append(del_rho_diff)
-    all_phi.append(phi_diff)
-    end_phi.append(math.log(phi_diff[len(phi_diff) - 1]))
-    mid_phi.append(math.log(phi_diff[int(len(phi_diff) / 2)]))
-    ln_r.append(math.log(get_R))
-    all_p.append(p_levels)
-    all_ice_depths.append(ice_depths)
-    # all_dy4_t.append(dy4_t)
-    # all_transport.append(transport)
-    # all_salt.append(salt)
-    # all_depth.append(depth)
-    # all_ambient.append(ambient)
-    # all_interfacial.append(ambient)
-    # all_precip.append(precip)
-    # all_heat.append(heat)
-    # all_vol.append(vol)
-    #all_dy = [dy0, dy1, dy2, dy3, dy4]
-    #all_dy = dy4
-    
-    # dy0_labels = ["total", "entrainment", "melting", "precipitation"]
-    # dy1_labels = ["total", "liquid buoyancy", "ice buoyancy", "drag"]
-    # dy2_labels = ["total", "ambient gradient", "melt density", "precipitated heat", "frazil heat"]
-    # dy3_labels = ["total", "ambient temp", "melt temp", "depth cooling", "interfacial temp", "latent precipitation", "latent frazil"]
-    # dy4_labels = ["total", "transport freezing", "salt freezing", "depth freezing", "ambient melting", "interfacial frazil", "latent precipitation", "heat transport", "volume precipitation"]
-    # dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
-    #dy_titles = ["d(U phi)/ds"]
-    # all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
-    #all_dy_labels = [dy4_labels]
-    
-    #labels_diff = ["H_diff", "U_diff", "del_T_diff", "del_rho_diff", "phi_diff"]
-    #array_diff = np.array([H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff])
-    
-    #plots first differential equations and second analytic solutions
-    
-    """
-    for line_diff, line_analytic, label_d, label_a in zip(array_diff, array_analytic, labels_diff, labels_analytic):
-        plt.figure(fig_num)
-        plt.plot(s, line_diff, label=label_d)
-        plt.plot(s, line_analytic, label=label_a)
-        plt.legend()
-        plt.show()
-        fig_num += 1
-    
-    # for line_diff, label_d in zip(array_diff_2, labels_diff_2):
-    #     plt.figure(fig_num)
-    #     plt.plot(s, line_diff, label=label_d)
-    #     plt.legend()
-    #     plt.show()
-    #     fig_num += 1
-    
-    plt.figure(fig_num)
-    plt.plot(s, phi_diff)
-    plt.show()
-    """
-    
-    # for line_diff, label_d in zip(array_diff, labels_diff):
-    #     plt.figure(fig_num)
-    #     plt.plot(s, line_diff, label=label_d, marker='.')
-    #     plt.legend()
-    #     plt.title(str(get_R) + "m radius")
-    #     plt.show()
-    #     fig_num += 1
-    # for dy, dy_title, dy_labels in zip (all_dy, dy_titles, all_dy_labels):
-    #     plt.figure(fig_num)
-    #     plt.plot(s, dy, marker='.')
-    #     plt.title(dy_title + " with radius: " + str(get_R))
-    #     plt.legend(dy_labels)
-    #     plt.show()
-    #     fig_num += 1
-    
-    count += 1
+        phi_diff.append(phi)
+    return H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff
 
-all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi, all_p, all_ice_depths]
-# all_2 = [all_dy4_t, all_transport, all_salt, all_depth, all_ambient, all_interfacial, all_precip, all_heat, all_vol]
+#given solutions of differential equations
+#creates arrays of terms in derivatives
+def derivative_arrays_from_y(s, y):
+    dy0 = []
+    dy1 = []
+    dy2 = []
+    dy3 = []
+    dy4 = []
+    for (vect, s0) in zip(y, s):
+        z = get_z(get_H(vect), s0)
+        dy0.append(dy0_ds(vect, z))
+        dy1.append(dy1_ds(vect, z))
+        dy2.append(dy2_ds(vect, z))
+        dy3.append(dy3_ds(vect, z))
+        dy4.append(dy4_ds(vect, z))
+    return dy0, dy1, dy2, dy3, dy4
 
-for array_set, var_title in zip(all_arrays, titles):
-    for var_array, r_label in zip(array_set, radii):
-        plt.figure(fig_num)
-        plt.plot(s, var_array, label=str(r_label), marker='.')
-    plt.title(var_title)
+#given solutions of differential equations
+#creates arrays of precipitation and marine ice accumulation
+def precipitation_arrays_from_y(s, y):
+    p_levels = []
+    ice_depth = 0
+    ice_depths = []
+    for index, s0 in enumerate(s):
+        vect = y[index]
+        z = get_z(get_H(vect), s0)
+        p = abs(get_p(vect, z))
+        p_levels.append(p)
+        if index == 0:
+            ice_depths.append(0)
+        else:
+            ice_depth += p * (s0 - s[index - 1]) / get_sheet_v(s0)
+            ice_depths.append(ice_depth)
+    return p_levels, ice_depths
+
+#given array of vectors with elements corresponding to different radii
+#plots elements as a function of distance
+def plot_multi_radius(s, data, radii, title):
+    for data_line, r_label in zip(data, radii):
+        plt.plot(s, data_line, label=str(r_label), marker='.')
+    plt.title(title)
     plt.legend()
     plt.show()
-    fig_num += 1
 
-plt.figure(fig_num)
-plt.scatter(ln_r, end_phi)
-m, b = np.polyfit(ln_r, end_phi, 1)
-x = np.array(ln_r)
-plt.plot(x, m * x + b)
-plt.show()
-fig_num += 1
+#given array of vectors with elements corresponding to terms in derivatives
+#plots elements as a function of distance
+def plot_derivative(s, data, radius, title, labels):
+    plt.plot(s, data)
+    plt.legend(labels)
+    title += " at radius " + str(radius)
+    plt.title(title)
+    plt.legend(labels)
+    plt.show()
 
-plt.figure(fig_num)
-plt.scatter(ln_r, mid_phi)
-plt.show()
+#given array of all phi values for different radii
+#plots phi as a function of radius for a specified index
+def plot_phi_radii(radii, data, precip_state, indices):
+    phis = []
+    for data_line in data:
+        vect = []
+        for index in indices:
+            vect.append(data_line[index])
+        phis.append(vect)
+    ln_r = []
+    ln_phi = []
+    for r, phi_vect in zip(radii, phis):
+        vect = []
+        for phi in phi_vect:
+            vect.append(math.log(phi))
+        ln_r.append(math.log(r))
+        ln_phi.append(vect)
+    title = "Phi as Function of Radius: "
+    plt.plot(radii, phis, marker = '.', linewidth = 0)
+    if precip_state:
+        title += "Stokes Drag"
+    else:
+        title += "Jenkins Drag"
+    plt.title(title)
+    plt.legend(indices)
+    plt.show()
+    plt.plot(ln_r, ln_phi, marker = '.', linewidth = 0)
+    index = 0
+    while index < len(indices):
+        ln_phi_fit = []
+        for vect in ln_phi:
+            ln_phi_fit.append(vect[index])
+        m, b = np.polyfit(ln_r, ln_phi_fit, 1)
+        b0 = math.exp(b)
+        equation = "phi = " + str(round(b0, 9)) + " * r ^ " + str(round(m, 3))
+        x = np.array(ln_r)
+        plt.plot(x, m * x + b)
+        plt.annotate(equation, (.1, .1 + .05 * index), xycoords = 'figure fraction')
+        index += 1
+    plt.legend(indices)
+    plt.title(title)
+    plt.show()
 
-plt.figure(fig_num)
+precip_type_count = 0
+my_precipitation = True
+fig_num = 0
 
-# for elem in all_2:
-#     for row, r_label in zip(elem, radii):
-#         plt.figure(fig_num)
-#         plt.plot(s[40:175], row[40:175], label=str(r_label), marker='.')
-#     plt.legend()
-#     plt.show()
-#     fig_num += 1
-
-# for term in all_dy4:
-#     plt.figure(fig_num)
-#     plt.plot(s, var_array, marker='.')
-#     plt.show()
-#     fig_num += 1
+while precip_type_count < 2:
+    #radii = [.01e-3, .05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
+    #radii = [.01e-3, .03e-3, .05e-3, .07e-3, .09e-3, .1e-3, .3e-3, .5e-3, .7e-3, .9e-3, 1e-3, 3e-3, 5e-3]
+    radii = np.linspace(.01e-3, 5e-3)
+    
+    all_H = []
+    all_U = []
+    all_del_T = []
+    all_del_rho = []
+    all_phi = []
+    all_p = []
+    all_ice_depths = []
+    titles = ["H", "U", "del_T", "del_rho", "phi", "precipitation", "accumulation"]
+    
+    count = 0
+    while (count < len(radii)):
+        get_R = radii[count]
+        #defines distances along slope to record results
+        y = odeint(derivative, y0, s)
+        #print(y[len(y) - 1])
+        
+        H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff = basic_arrays_from_y(s, y)
+        dy0, dy1, dy2, dy3, dy4 = derivative_arrays_from_y(s, y)
+        p_levels, ice_depths = precipitation_arrays_from_y(s, y)
+        
+        all_H.append(H_diff)
+        all_U.append(U_diff)
+        all_del_T.append(del_T_diff)
+        all_del_rho.append(del_rho_diff)
+        all_phi.append(phi_diff)
+        all_p.append(p_levels)
+        all_ice_depths.append(ice_depths)
+        all_dy = [dy0, dy1, dy2, dy3, dy4]
+        
+        dy0_labels = ["total", "entrainment", "melting", "precipitation"]
+        dy1_labels = ["total", "liquid buoyancy", "ice buoyancy", "drag"]
+        dy2_labels = ["total", "ambient gradient", "melt density", "precipitated heat", "frazil heat"]
+        dy3_labels = ["total", "ambient temp", "melt temp", "depth cooling", "interfacial temp", "latent precipitation", "latent frazil"]
+        dy4_labels = ["total", "transport freezing", "salt freezing", "depth freezing", "ambient melting", "interfacial frazil", "latent precipitation", "heat transport", "volume precipitation"]
+        dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
+        all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
+        
+        for data, title, labels in zip(all_dy, dy_titles, all_dy_labels):
+            plot_derivative(s, data, get_R, title, labels)
+        count += 1
+    
+    all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi, all_p, all_ice_depths]
+    
+    #plots each of H, U, del_rho, del_T, phi, p, accumulation
+    #with variety of radii on same plot
+    for array_set, var_title in zip(all_arrays, titles):
+        plot_multi_radius(s, array_set, radii, var_title)
+    
+    indices = [len(s) - 1, int(len(s) / 2), 3 * int(len(s) / 4)]
+    plot_phi_radii(radii, all_phi, my_precipitation, indices)
+    
+    my_precipitation = False
+    precip_type_count += 1
