@@ -220,7 +220,20 @@ def get_reynolds(y):
 
 #returns velocity of ice sheet at given distance from grounding line
 def get_sheet_v(s):
-    return 1
+    if s < 100:
+        m_per_y = 800 - 2 * s
+    elif s < 200:
+        m_per_y = 600 - 3 * (s - 100)
+    elif s < 300:
+        m_per_y = 300
+    elif s < 400:
+        m_per_y = 300 + 2 * (s - 300)
+    elif s < 500:
+        m_per_y = 500 + 5 * (s - 400)
+    else:
+        m_per_y = 1000
+    result = m_per_y / 365 / 24 / 3600
+    return result
 
 #calculates phi by dividing U*phi / U
 def get_phi(y, z):
@@ -275,7 +288,9 @@ def dy2_ds(y, z):
     p = get_p(y, z)
     ambient_gradient = drho_a_ds / rho_l * y[0]
     melt_density = del_rho_eff / rho_l * m
-    precip_heat = (beta_s * S_a - beta_T * (T_a - c_s / c_l * T_i)) * p
+    melt_density = beta_s * S_a * m
+    T_eff = get_T_eff(T_i)
+    precip_heat = (beta_s * S_a - beta_T * (T_a - c_s / c_l * T_i)) * p - beta_T * (T_a - T_eff) * m
     get_dy4 = dy4_ds(y, z)
     phi_heat = beta_T * rho_s / rho_l * L / c_l * get_dy4[0]
     result = ambient_gradient + melt_density + precip_heat + phi_heat
@@ -319,15 +334,16 @@ def dy4_ds(y, z):
         S_a = get_S_a(z)
         get_dy0 = dy0_ds(y, z)
         transport_freezing = (T_m + lamda * z) * get_dy0[0] * rho_l * c_l / L / rho_s
-        salt_freezing = - tau * (e * S_a + m * S_i - St_m * U * (S - S_i)) * rho_l * c_l / L / rho_s
+        salt_ambient = - tau * (e * S_a) * rho_l * c_l / L / rho_s
+        salt_interfacial = - tau * (m * S_i - St_m * U * (S - S_i)) * rho_l * c_l / L / rho_s
         depth_freezing = lamda * y[0] * sin_theta * rho_l * c_l / L / rho_s
         ambient = - e * T_a * rho_l * c_l / L / rho_s
         interfacial = - m * T_i * rho_l * c_l / L / rho_s
         p_latent = - c_s / c_l * p * T_i * rho_l * c_l / L / rho_s
         heat_transp = St * U * (T - T_i) * rho_l * c_l / L / rho_s
         p_vol = rho_l * p / rho_s
-        sum = transport_freezing + salt_freezing + depth_freezing + ambient + interfacial + p_latent + heat_transp + p_vol
-        result = [sum, transport_freezing, salt_freezing, depth_freezing, ambient, interfacial, p_latent, heat_transp, p_vol]
+        sum = transport_freezing + salt_ambient + salt_interfacial + depth_freezing + ambient + interfacial + p_latent + heat_transp + p_vol
+        result = [sum, salt_interfacial, salt_ambient + ambient, depth_freezing + p_vol + transport_freezing, 0, interfacial, p_latent, heat_transp, 0]
     return result
 
 """
@@ -351,6 +367,7 @@ system of equations which is solved to find M, T, S
 (under assumption that M is small, so do not need to calculate T_i, S_i
 for calculation of initial y values)
 """
+#simplified version with assumption of small M
 def solve_init_system(vect, E, z):
     M, T, S = vect
     S_a = get_S_a(z)
@@ -363,26 +380,7 @@ def solve_init_system(vect, E, z):
     func3 = beta_s * (S - S_a) - beta_T * (T - T_a)
     return [func1, func2, func3]
 
-#sets initial distance along slope at which analytical solutions are used
-X0 = 0.01
-E0 = E_0 * sin_theta
-z0 = D + X0 * sin_theta
-
-#solves (simplified) analytic system of equations for M, T, S
-S_a0 = get_S_a(z0)
-T_a0 = get_T_a(z0)
-M0, T0, S0 = fsolve(solve_init_system, [E0 * St / (E0 + St) * c_l * get_del_T_a(z0) / L, T_a0, S_a0], args = (E0, z0))
-
-"""
-converts M, T, S values into values for other terms
-allowing use of full versions of equations 29, 30 in Magorrian Wells
-"""
-H0 = 2 / 3 * (E0 + M0) * X0
-del_T0 = T0 - get_T_L(S0, z0)
-del_rho0 = - rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
-U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
-T_i0, S_i0 = fsolve(interfacial_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
-
+#exact version used on later iterations
 def repeat_init_solve(vect, E, X, U, T_i, S_i):
     z = get_z(H0, X)
     T_eff = get_T_eff(T_i)
@@ -403,51 +401,8 @@ def repeat_init_solve(vect, E, X, U, T_i, S_i):
     return [func1, func2, func3]
 
 """
-iterates through more complete version of analytic equations
-to find more accurate initial conditions
+various functions for post-processing results of differential equations
 """
-i_vals = []
-del_T_vals = []
-del_rho_vals = []
-U_vals = []
-M_vals = []
-i = 0
-while i < 40:
-    M0, T0, S0 = fsolve(repeat_init_solve, [M0, T0, S0], args = (E0, X0, U0, T_i0, S_i0))
-    #converts output of system of equations into other values
-    #some of which are in turn inputs in next iteration of system of equations
-    H0 = 2 / 3 * (E0 + M0) * X0
-    del_T0 = T0 - get_T_L(S0, z0)
-    del_rho0 = -1 * rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
-    T_eff = get_T_eff(T_i0)
-    rho_eff = rho_l * (beta_s * (S_a0 - S_s) - beta_T * (T_a0 - get_T_eff(T_i0)))
-    U0 = math.sqrt((2 * ((E0 + M0) / (3 * C_d + 4 * (E0 + M0))) * del_rho0 / rho_l * g * sin_theta * X0))
-    T_i0, S_i0 = fsolve(interfacial_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
-    i_vals.append(i)
-    del_T_vals.append(del_T0)
-    del_rho_vals.append(del_rho0)
-    U_vals.append(U0)
-    M_vals.append(M0)
-    i += 1
-
-#converts values into format most useful for differential equations
-y0_0 = H0 * U0
-y0_1 = H0 * U0 ** 2
-y0_2 = H0 * U0 * del_rho0 / rho_l
-y0_3 = H0 * U0 * del_T0
-y0_4 = 0
-
-#puts these initial values in a vector for solving equations
-y0 = [y0_0, y0_1, y0_2, y0_3, y0_4]
-
-#y0 = [9.20816705e-06,  8.04886127e-08,  9.61161561e-08, -5.18938969e-05, 3.59298686e-06]
-print(y0)
-
-#defines distances along slope to record results
-list1 = np.linspace(0, 300e3, 25)
-list2 = np.linspace(300e3, 600e3, 150)
-s = np.concatenate((list1, list2))
-
 #given solutions of differential equations
 #creates arrays of more meaningful quantities H, U, del_T, del_rho, phi
 def basic_arrays_from_y(s, y):
@@ -506,6 +461,16 @@ def precipitation_arrays_from_y(s, y):
             ice_depths.append(ice_depth)
     return p_levels, ice_depths
 
+#given solutions of differential equations
+#creates arrays of HU and HU^2
+def get_HU_array(s, y):
+    HU_diff = []
+    HU2_diff = []
+    for (vect, s0) in zip(y, s):
+        HU_diff.append(vect[0])
+        HU2_diff.append(vect[1])
+    return HU_diff, HU2_diff
+
 #given array of vectors with elements corresponding to different radii
 #plots elements as a function of distance
 def plot_multi_radius(s, data, radii, title):
@@ -525,24 +490,43 @@ def plot_derivative(s, data, radius, title, labels):
     plt.legend(labels)
     plt.show()
 
-#given array of all phi values for different radii
-#plots phi as a function of radius for a specified index
-def plot_phi_radii(radii, data, precip_state, indices):
-    phis = []
+#helper function for plot_phi_radii
+#which creates arrays of indexed location at different r values
+def get_index_data(data, indices, vert_place = 0):
+    indexed_data = []
     for data_line in data:
         vect = []
         for index in indices:
-            vect.append(data_line[index])
-        phis.append(vect)
-    ln_r = []
-    ln_phi = []
-    for r, phi_vect in zip(radii, phis):
-        vect = []
-        for phi in phi_vect:
-            vect.append(math.log(phi))
-        ln_r.append(math.log(r))
-        ln_phi.append(vect)
-    title = "Phi as Function of Radius: "
+            point = data_line[index]
+            if np.isscalar(point):
+                vect.append(point)
+            else:
+                vect.append(point[vert_place])
+        indexed_data.append(vect)
+    return indexed_data
+
+#helper function for plot_phi_radii
+#which creates arrays of ln radius and ln phi
+def get_log_log(x_set, data):
+    log_x = []
+    log_data = []
+    for x, vect in zip(x_set, data):
+        log_vect = []
+        for elem in vect:
+            log_vect.append(math.log(abs(elem)))
+        log_x.append(math.log(x))
+        log_data.append(log_vect)
+    return log_x, log_data
+
+#given array of all phi values for different radii
+#plots phi as a function of radius for a specified index
+#also used for plotting other values as a function of radius in spite of name
+def plot_phi_radii(radii, data, precip_state, indices, title, vert_place = 0):
+    #extracts data points for phi at specified indices
+    phis = get_index_data(data, indices, vert_place)
+    #converts r and phi data into log-log form
+    ln_r, ln_phi = get_log_log(radii, phis)
+    #plots ordinary phi-r relationship
     plt.plot(radii, phis, marker = '.', linewidth = 0)
     if precip_state:
         title += "Stokes Drag"
@@ -551,9 +535,11 @@ def plot_phi_radii(radii, data, precip_state, indices):
     plt.title(title)
     plt.legend(indices)
     plt.show()
+    #plots log-log phi-r relationship
     plt.plot(ln_r, ln_phi, marker = '.', linewidth = 0)
     index = 0
     while index < len(indices):
+        #constructs lines of best fit for phi-r data from each index
         ln_phi_fit = []
         for vect in ln_phi:
             ln_phi_fit.append(vect[index])
@@ -568,14 +554,96 @@ def plot_phi_radii(radii, data, precip_state, indices):
     plt.title(title)
     plt.show()
 
+def plot_dy4s(s, data, radii, precip_state, title):
+    dy4_total = []
+    for radius, row in zip(radii, data):
+        dy4_t_row = []
+        for vect in row:
+           dy4_t_row.append(vect[0])
+        dy4_total.append(dy4_t_row)
+    
+    for data_line, r_label in zip(dy4_total, radii):
+        plt.plot(s, data_line, label=str(r_label))
+    plt.title(title)
+    plt.legend()
+    plt.show()
+
+#sets initial distance along slope at which analytical solutions are used
+X0 = 0.01
+E0 = E_0 * sin_theta
+z0 = D + X0 * sin_theta
+
+#solves (simplified) analytic system of equations for M, T, S
+S_a0 = get_S_a(z0)
+T_a0 = get_T_a(z0)
+M0, T0, S0 = fsolve(solve_init_system, [E0 * St / (E0 + St) * c_l * get_del_T_a(z0) / L, T_a0, S_a0], args = (E0, z0))
+
+"""
+converts M, T, S values into values for other terms
+allowing use of full versions of equations 29, 30 in Magorrian Wells
+"""
+H0 = 2 / 3 * (E0 + M0) * X0
+del_T0 = T0 - get_T_L(S0, z0)
+del_rho0 = - rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
+U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
+T_i0, S_i0 = fsolve(interfacial_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
+
+"""
+iterates through more complete version of analytic equations
+to find more accurate initial conditions
+"""
+i_vals = []
+del_T_vals = []
+del_rho_vals = []
+U_vals = []
+M_vals = []
+i = 0
+while i < 40:
+    M0, T0, S0 = fsolve(repeat_init_solve, [M0, T0, S0], args = (E0, X0, U0, T_i0, S_i0))
+    #converts output of system of equations into other values
+    #some of which are in turn inputs in next iteration of system of equations
+    H0 = 2 / 3 * (E0 + M0) * X0
+    del_T0 = T0 - get_T_L(S0, z0)
+    del_rho0 = -1 * rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
+    T_eff = get_T_eff(T_i0)
+    rho_eff = rho_l * (beta_s * (S_a0 - S_s) - beta_T * (T_a0 - get_T_eff(T_i0)))
+    U0 = math.sqrt((2 * ((E0 + M0) / (3 * C_d + 4 * (E0 + M0))) * del_rho0 / rho_l * g * sin_theta * X0))
+    T_i0, S_i0 = fsolve(interfacial_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
+    i_vals.append(i)
+    del_T_vals.append(del_T0)
+    del_rho_vals.append(del_rho0)
+    U_vals.append(U0)
+    M_vals.append(M0)
+    i += 1
+
+#converts values into format most useful for differential equations
+y0_0 = H0 * U0
+y0_1 = H0 * U0 ** 2
+y0_2 = H0 * U0 * del_rho0 / rho_l
+y0_3 = H0 * U0 * del_T0
+y0_4 = 0
+
+#puts these initial values in a vector for solving equations
+y0 = [y0_0, y0_1, y0_2, y0_3, y0_4]
+
+#y0 = [9.20816705e-06,  8.04886127e-08,  9.61161561e-08, -5.18938969e-05, 3.59298686e-06]
+print(y0)
+
+#defines distances along slope to record results
+list1 = np.linspace(0, 300e3, 25)
+list2 = np.linspace(300e3, 600e3, 150)
+s = np.concatenate((list1, list2))
+
+
+
 precip_type_count = 0
 my_precipitation = True
 fig_num = 0
 
 while precip_type_count < 2:
-    #radii = [.01e-3, .05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
+    radii = [.01e-3, .05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
     #radii = [.01e-3, .03e-3, .05e-3, .07e-3, .09e-3, .1e-3, .3e-3, .5e-3, .7e-3, .9e-3, 1e-3, 3e-3, 5e-3]
-    radii = np.linspace(.01e-3, 5e-3)
+    #radii = np.linspace(.01e-3, 5e-3)
     
     all_H = []
     all_U = []
@@ -584,6 +652,10 @@ while precip_type_count < 2:
     all_phi = []
     all_p = []
     all_ice_depths = []
+    all_dy4 = []
+    all_dy1 = []
+    all_HU = []
+    all_HU2 = []
     titles = ["H", "U", "del_T", "del_rho", "phi", "precipitation", "accumulation"]
     
     count = 0
@@ -596,6 +668,7 @@ while precip_type_count < 2:
         H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff = basic_arrays_from_y(s, y)
         dy0, dy1, dy2, dy3, dy4 = derivative_arrays_from_y(s, y)
         p_levels, ice_depths = precipitation_arrays_from_y(s, y)
+        HU_diff, HU2_diff = get_HU_array(s, y)
         
         all_H.append(H_diff)
         all_U.append(U_diff)
@@ -604,7 +677,11 @@ while precip_type_count < 2:
         all_phi.append(phi_diff)
         all_p.append(p_levels)
         all_ice_depths.append(ice_depths)
-        all_dy = [dy0, dy1, dy2, dy3, dy4]
+        all_HU.append(HU_diff)
+        all_HU2.append(HU2_diff)
+        set_of_dy = [dy0, dy1, dy2, dy3, dy4]
+        all_dy4.append(dy4)
+        all_dy1.append(dy1)
         
         dy0_labels = ["total", "entrainment", "melting", "precipitation"]
         dy1_labels = ["total", "liquid buoyancy", "ice buoyancy", "drag"]
@@ -614,19 +691,38 @@ while precip_type_count < 2:
         dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
         all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
         
-        for data, title, labels in zip(all_dy, dy_titles, all_dy_labels):
+        #plots all derivatives for given radius
+        for data, title, labels in zip(set_of_dy, dy_titles, all_dy_labels):
             plot_derivative(s, data, get_R, title, labels)
+        
+        # #plots only derivative of U * phi
+        # plot_derivative(s, dy4, get_R, "d(U phi)/ds", dy4_labels)
+        
+        #iterates to next radius
         count += 1
+    
+    #plot_dy4s(s, all_dy4, radii, my_precipitation, "total dy4")
     
     all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi, all_p, all_ice_depths]
     
-    #plots each of H, U, del_rho, del_T, phi, p, accumulation
-    #with variety of radii on same plot
-    for array_set, var_title in zip(all_arrays, titles):
-        plot_multi_radius(s, array_set, radii, var_title)
+    # #plots each of H, U, del_rho, del_T, phi, p, accumulation
+    # #with variety of radii on same plot
+    # for array_set, var_title in zip(all_arrays, titles):
+    #     plot_multi_radius(s, array_set, radii, var_title)
     
-    indices = [len(s) - 1, int(len(s) / 2), 3 * int(len(s) / 4)]
-    plot_phi_radii(radii, all_phi, my_precipitation, indices)
+    # #plots phi at specified indices as a function of radius
+    # indices = [len(s) - 1, int(len(s) / 2), 3 * int(len(s) / 4)]
+    # title = "phi as a function of radius: "
+    # plot_phi_radii(radii, all_phi, my_precipitation, indices, title)
     
+    # #plots dy4 at specified indices as a function of radius
+    # title = "dy4 as a function of radius: "
+    # plot_phi_radii(radii, all_dy4, my_precipitation, indices, title)
+    
+    # #plots dy1 at specified indices as a function of radius for comparison
+    # title = "dy1 as a function of radius: "
+    # plot_phi_radii(radii, all_dy1, my_precipitation, indices, title)
+    
+    #switches from Stokes Drag to Jenkins and Bombosch formula and repeats graphs
     my_precipitation = False
     precip_type_count += 1
