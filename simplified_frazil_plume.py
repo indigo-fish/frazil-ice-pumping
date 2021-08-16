@@ -40,7 +40,7 @@ nu = 1.95e-6
 #T_a = 1 #ambient water temperature - specified in get_T_a(z) instead
 D = -1400 #start depth
 U_T = 0 #tide velocity
-get_R = 0 #global variable for radius set by later code
+get_R = 5e-3 #global variable for radius set by later code
 my_precipitation = True #chooses between Stokes and Jenkins drag
 Jenkins_ambient = True #chooses between ideal and Amery ice shelf conditions
 
@@ -119,23 +119,85 @@ def get_C(z):
 #calculates plume thickness
 def get_H(y):
     E = E_0 * sin_theta
-    return E * y[1] / (y[0]) ** 1/3
+    X = get_X(y)
+    Y = get_Y(y)
+    return E * X / Y ** (1/3)
 
-#HU = X = y[1]
+#calculates plume velocity
+def get_U(y):
+    E = E_0 * sin_theta
+    Y = get_Y(y)
+    return Y ** (1/3) / E
+
+#calculates density deficit
+def get_del_rho(y):
+    U = get_U(y)
+    H = get_H(y)
+    return rho_l * C_d / g / sin_theta * U ** 2 / H
+
+#calculates liquidus temperature
+def get_T_L(S, z):
+    return T_m + lamda * z - tau * (S - S_s)
+
+def get_del_T_a(z):
+    T_a = get_T_a(z)
+    S_a = get_S_a(z)
+    return T_a - get_T_L(S_a, z)
+
+#calculates precipitation
+def get_p(y, z):
+    E = E_0 * sin_theta
+    U = get_U(y)
+    del_T_a = get_del_T_a(z)
+    X = get_X(y)
+    return c_l / L * (E * U * del_T_a - lamda * X * sin_theta)
+
+#HU = X = y[0]
 def get_X(y):
-    return y[1]
-
-#(dX/ds) ^ 3 = Y = y[0]
-def get_Y(y):
     return y[0]
+
+#(dX/ds) ^ 3 = Y = y[1]
+def get_Y(y):
+    return y[1]
 
 def derivative(y, s):
     X = get_X(y) #HU
     Y = get_Y(y) #(dX/ds) ^ 3
     z = get_z(get_H(y), s)
-    dY = get_A(z) / get_C(z) * X + get_B(z) / get_C(z) * Y ** (1/3)
     dX = Y ** (1/3)
-    return [dY, dX]
+    dY = get_A(z) / get_C(z) * X + get_B(z) / get_C(z) * Y ** (1/3)
+    return [dX, dY]
 
-s = np.linspace(0, 300e3)
-y0 = 
+def basic_arrays_from_y(s, y):
+    H_diff = []
+    U_diff = []
+    del_rho_diff = []
+    p_diff = []
+    for (vect, s0) in zip(y, s):
+        z = get_z(get_H(y), s0)
+        H_diff.append(get_H(vect))
+        U_diff.append(get_U(vect))
+        del_rho_diff.append(get_del_rho(vect))
+        #p_diff.append(get_p(vect, z))
+    return H_diff, U_diff, del_rho_diff, p_diff
+
+def basic_plot(s, data, title):
+    plt.plot(s, data)
+    plt.title(title)
+    plt.show()
+
+s = np.linspace(405e3, 600e3)
+y0 = [2.988119957536042, (9.915198356958679e-6) ** 3]
+y = odeint(derivative, y0, s)
+
+H_diff, U_diff, del_rho_diff, p_diff = basic_arrays_from_y(s, y)
+
+print([H_diff[0], U_diff[0], del_rho_diff[0]])
+
+# all_arrays = [H_diff, U_diff, del_rho_diff, p_diff]
+# all_titles = ["H", "U", "delta rho", "p"]
+all_arrays = [H_diff, U_diff, del_rho_diff]
+all_titles = ["H", "U", "delta ro", "p"]
+
+for data, title in zip(all_arrays, all_titles):
+    basic_plot(s, data, title)

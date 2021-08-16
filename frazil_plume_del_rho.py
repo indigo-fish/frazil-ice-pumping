@@ -356,6 +356,7 @@ def derivative(y, s):
     dy2 = dy2_ds(y, z)
     dy3 = dy3_ds(y, z)
     dy4 = dy4_ds(y, z)
+    if 405e3 < s < 406.2e3: print(str(y[0]) + " " + str(dy0[0]))
     return [dy0[0], dy1[0], dy2[0], dy3[0], dy4[0]]
 
 """
@@ -568,6 +569,17 @@ def plot_dy4s(s, data, radii, precip_state, title):
     plt.legend()
     plt.show()
 
+def plot_while_frazil(s, data, title):
+    s_cropped = []
+    data_cropped = []
+    for s0, data0 in zip(s, data):
+        if s0 > 400e3:
+            s_cropped.append(s0)
+            data_cropped.append(data0)
+    plt.plot(s_cropped, data_cropped)
+    plt.title(title)
+    plt.show()
+
 #sets initial distance along slope at which analytical solutions are used
 X0 = 0.01
 E0 = E_0 * sin_theta
@@ -631,19 +643,19 @@ print(y0)
 
 #defines distances along slope to record results
 list1 = np.linspace(0, 300e3, 25)
-list2 = np.linspace(300e3, 600e3, 150)
+list2 = np.linspace(300e3, 800e3, 150)
 s = np.concatenate((list1, list2))
-
-
 
 precip_type_count = 0
 my_precipitation = True
 fig_num = 0
 
-while precip_type_count < 2:
-    radii = [.01e-3, .05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
+#while precip_type_count < 2:
+while precip_type_count < 1:
+    #radii = [.01e-3, .05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
     #radii = [.01e-3, .03e-3, .05e-3, .07e-3, .09e-3, .1e-3, .3e-3, .5e-3, .7e-3, .9e-3, 1e-3, 3e-3, 5e-3]
     #radii = np.linspace(.01e-3, 5e-3)
+    radii = [.1e-3]
     
     all_H = []
     all_U = []
@@ -670,6 +682,12 @@ while precip_type_count < 2:
         p_levels, ice_depths = precipitation_arrays_from_y(s, y)
         HU_diff, HU2_diff = get_HU_array(s, y)
         
+        all_arrays = [H_diff, U_diff, del_rho_diff]
+        all_titles = ["H", "U", "delta rho"]
+        
+        for data, title in zip(all_arrays, all_titles):
+            plot_while_frazil(s, data, title)
+        
         all_H.append(H_diff)
         all_U.append(U_diff)
         all_del_T.append(del_T_diff)
@@ -691,12 +709,19 @@ while precip_type_count < 2:
         dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
         all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
         
-        #plots all derivatives for given radius
-        for data, title, labels in zip(set_of_dy, dy_titles, all_dy_labels):
-            plot_derivative(s, data, get_R, title, labels)
+        # #plots all derivatives for given radius
+        # for data, title, labels in zip(set_of_dy, dy_titles, all_dy_labels):
+        #     plot_derivative(s, data, get_R, title, labels)
         
         # #plots only derivative of U * phi
         # plot_derivative(s, dy4, get_R, "d(U phi)/ds", dy4_labels)
+        
+        # #plots only derivative of HU^2
+        # if my_precipitation:
+        #     title = "Stokes Drag: "
+        # else:
+        #     title = "Jenkins Drag: "
+        # plot_derivative(s, dy1, get_R, title + "d(HU^2)/ds", dy1_labels)
         
         #iterates to next radius
         count += 1
