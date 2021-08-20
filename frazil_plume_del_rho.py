@@ -524,7 +524,11 @@ def precipitation_arrays_from_y(s, y):
 def r_array_from_y(s, y):
     r_diff = []
     for (vect, s0) in zip(y, s):
-        r = get_R_direct(get_H(vect))
+        z = get_z(get_H(vect), s0)
+        if get_phi(vect, z):
+            r = get_R_direct(get_H(vect))
+        else:
+            r = 0
         r_diff.append(r)
     return r_diff
 

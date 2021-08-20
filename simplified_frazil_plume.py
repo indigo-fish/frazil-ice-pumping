@@ -91,6 +91,50 @@ def get_d_S_a_dz(z):
         return (34.71 - 34.5) / 1115
     else:
         return (34.35 - 34.65) / 1115
+# #integrates derivative to find T_a as a function of depth
+# #starting from known T_a at D
+# def get_T_a(z):
+#     # integral, error = quad(get_d_T_a_dz, D, z)
+#     # if Jenkins_ambient:
+#     #     T_a = -1.9 + integral
+#     # else:
+#     #     T_a = -2.05 + integral
+#     # #T_a = 0
+#     T_a = 0
+#     return T_a
+
+# #integrates derivative to find S_a as a function of depth
+# #starting from known S_a at D
+# def get_S_a(z):
+#     # integral, error = quad(get_d_S_a_dz, D, z)
+#     # if Jenkins_ambient:
+#     #     S_a = 34.5 + integral
+#     # else:
+#     #     S_a = 34.65
+#     S_a = 34.5
+#     return S_a
+
+# #calculates rho_a as a function of T_a and S_a (which depend on depth)
+# def get_rho_a(z):
+#     S_a = get_S_a(z)
+#     T_a = get_T_a(z)
+#     return 1000 + rho_l * (beta_s * S_a + beta_T * (4 - T_a))
+
+# #specifies rate of change of T_a with depth
+# def get_d_T_a_dz(z):
+#     # if Jenkins_ambient:
+#     #     return (-2.18 + 1.9) / 1115
+#     # else:
+#     #     return (-1.85 + 2.05) / 1115
+#     return 0
+
+# #specifies rate of change of S_a with depth
+# def get_d_S_a_dz(z):
+#     # if Jenkins_ambient:
+#     #     return (34.71 - 34.5) / 1115
+#     # else:
+#     #     return (34.35 - 34.65) / 1115
+#     return 0
 
 #calculates rate of change of rho_a with depth
 def get_d_rho_a_dz(z):
@@ -103,13 +147,14 @@ def get_z(H, s):
 #numerator of coefficient of X in dY/ds
 def get_A(z):
     S_a = get_S_a(z)
-    return 1 / rho_l * get_d_rho_a_dz(z) - beta_s * S_a * c_l / L * lamda * sin_theta
+    d_rho_a_dz = get_d_rho_a_dz(z)
+    return 1 / rho_l * d_rho_a_dz - beta_s * S_a * c_l / L * lamda * sin_theta
 
 #numerator of coefficient of Y^1/3 in dY/ds
 def get_B(z):
     S_a = get_S_a(z)
-    T_a = get_T_a(z)
-    return beta_s * S_a * c_l / L * (tau * S_a + T_a - lamda * z)
+    del_T_a = get_del_T_a(z)
+    return beta_s * S_a * c_l / L * del_T_a
 
 #denominator of coefficients in dY/ds
 def get_C(z):
@@ -169,17 +214,21 @@ def derivative(y, s):
     return [dX, dY]
 
 def basic_arrays_from_y(s, y):
+    X_diff = []
+    Y_diff = []
     H_diff = []
     U_diff = []
     del_rho_diff = []
     p_diff = []
     for (vect, s0) in zip(y, s):
-        z = get_z(get_H(y), s0)
+        z = get_z(get_H(vect), s0)
+        X_diff.append(get_X(vect))
+        Y_diff.append(get_Y(vect))
         H_diff.append(get_H(vect))
         U_diff.append(get_U(vect))
         del_rho_diff.append(get_del_rho(vect))
-        #p_diff.append(get_p(vect, z))
-    return H_diff, U_diff, del_rho_diff, p_diff
+        p_diff.append(get_p(vect, z))
+    return X_diff, Y_diff, H_diff, U_diff, del_rho_diff, p_diff
 
 def basic_plot(s, data, title):
     plt.plot(s, data)
@@ -190,14 +239,15 @@ s = np.linspace(405e3, 600e3)
 y0 = [2.988119957536042, (9.915198356958679e-6) ** 3]
 y = odeint(derivative, y0, s)
 
-H_diff, U_diff, del_rho_diff, p_diff = basic_arrays_from_y(s, y)
+X_diff, Y_diff, H_diff, U_diff, del_rho_diff, p_diff = basic_arrays_from_y(s, y)
 
+print([X_diff[0], Y_diff[0]])
 print([H_diff[0], U_diff[0], del_rho_diff[0]])
 
-# all_arrays = [H_diff, U_diff, del_rho_diff, p_diff]
+#all_arrays = [H_diff, U_diff, del_rho_diff, p_diff]
 # all_titles = ["H", "U", "delta rho", "p"]
-all_arrays = [H_diff, U_diff, del_rho_diff]
-all_titles = ["H", "U", "delta ro", "p"]
+all_arrays = [X_diff, Y_diff, H_diff, U_diff, del_rho_diff, p_diff]
+all_titles = ["X", "Y", "H", "U", "delta rho", "p"]
 
 for data, title in zip(all_arrays, all_titles):
     basic_plot(s, data, title)
