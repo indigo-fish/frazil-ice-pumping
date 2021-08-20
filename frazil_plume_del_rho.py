@@ -32,22 +32,27 @@ beta_s = 7.86e-4 #haline contraction coefficient
 beta_T = 3.87e-5 #thermal expansion coefficient
 g = 9.81 #gravitational acceleration
 S_s = 0 #salt concentration in ice
-#I am choosing theta arbitrarily
-#theta = 0.1
-sin_theta = 1115/600e3
-#S_a = 35 #ambient water salinity - specified in get_S_a(z) instead
 #I don't know rho_a, rho_l, rho_s
 rho_s = 916.8
 nu = 1.95e-6
 #T_a = 1 #ambient water temperature - specified in get_T_a(z) instead
 D = -1400 #start depth
+D_at_600 = -285 #end depth
+Ta_at_0 = -1.9 #start ambient temperature
+Ta_at_600 = -2.18 #end ambient temperature
+Sa_at_0 = 34.5 #start ambient salinity
+Sa_at_600 = 34.71 #end ambient salinity
+#theta = 0.1
+sin_theta = (D_at_600 - D)/600e3 #slope of ice shelf
 U_T = 0 #tide velocity
 get_R = 0 #global variable for radius set by later code
-my_precipitation = False #chooses between Stokes and Jenkins drag
-Jenkins_ambient = True #chooses between ideal and Amery ice shelf conditions
 k_l = .569 #thermal conductivity
 T_deficit = 0.02 #supercooling
 t_ice = .05e-3 #constant ice crystal thickness
+
+my_precipitation = True #chooses between Stokes and Jenkins drag
+Jenkins_ambient = True #chooses between ideal and Amery ice shelf conditions
+vary_radius = True #chooses between fixed crystal radius and growing with plume
 
 #provides linear structure of density
 rho_l = 1028
@@ -61,7 +66,7 @@ temperature/salinity stratifications
 def get_T_a(z):
     integral, error = quad(get_d_T_a_dz, D, z)
     if Jenkins_ambient:
-        T_a = -1.9 + integral
+        T_a = Ta_at_0 + integral
     else:
         T_a = -2.05 + integral
     #T_a = 0
@@ -72,7 +77,7 @@ def get_T_a(z):
 def get_S_a(z):
     integral, error = quad(get_d_S_a_dz, D, z)
     if Jenkins_ambient:
-        S_a = 34.5 + integral
+        S_a = Sa_at_0 + integral
     else:
         S_a = 34.65
     return S_a
@@ -86,61 +91,16 @@ def get_rho_a(z):
 #specifies rate of change of T_a with depth
 def get_d_T_a_dz(z):
     if Jenkins_ambient:
-        return (-2.18 + 1.9) / 1115
+        return (Ta_at_600 - Ta_at_0) / (D_at_600 - D)
     else:
-        return (-1.85 + 2.05) / 1115
+        return (-1.85 + 2.05) / (D_at_600 - D)
 
 #specifies rate of change of S_a with depth
 def get_d_S_a_dz(z):
     if Jenkins_ambient:
-        return (34.71 - 34.5) / 1115
+        return (Sa_at_600 - Sa_at_0) / (D_at_600 - D)
     else:
-        return (34.35 - 34.65) / 1115
-
-# #integrates derivative to find T_a as a function of depth
-# #starting from known T_a at D
-# def get_T_a(z):
-#     # integral, error = quad(get_d_T_a_dz, D, z)
-#     # if Jenkins_ambient:
-#     #     T_a = -1.9 + integral
-#     # else:
-#     #     T_a = -2.05 + integral
-#     # #T_a = 0
-#     T_a = -1
-#     return T_a
-
-# #integrates derivative to find S_a as a function of depth
-# #starting from known S_a at D
-# def get_S_a(z):
-#     # integral, error = quad(get_d_S_a_dz, D, z)
-#     # if Jenkins_ambient:
-#     #     S_a = 34.5 + integral
-#     # else:
-#     #     S_a = 34.65
-#     S_a = 35
-#     return S_a
-
-# #calculates rho_a as a function of T_a and S_a (which depend on depth)
-# def get_rho_a(z):
-#     S_a = get_S_a(z)
-#     T_a = get_T_a(z)
-#     return 1000 + rho_l * (beta_s * S_a + beta_T * (4 - T_a))
-
-# #specifies rate of change of T_a with depth
-# def get_d_T_a_dz(z):
-#     # if Jenkins_ambient:
-#     #     return (-2.18 + 1.9) / 1115
-#     # else:
-#     #     return (-1.85 + 2.05) / 1115
-#     return 0
-
-# #specifies rate of change of S_a with depth
-# def get_d_S_a_dz(z):
-#     # if Jenkins_ambient:
-#     #     return (34.71 - 34.5) / 1115
-#     # else:
-#     #     return (34.35 - 34.65) / 1115
-#     return 0
+        return (34.35 - 34.65) / (D_at_600 - D)
 
 #calculates rate of change of rho_a with depth
 def get_d_rho_a_dz(z):
@@ -234,33 +194,63 @@ def get_del_T_a(z):
 def get_p(y, z):
     if my_precipitation:
         phi = get_phi(y, z)
-        if phi > 0:
-            R = get_R_direct(get_H(y))
+        if vary_radius:
+            if phi > 0:
+                R = get_R_direct_stokes(get_H(y))
+            else:
+                R = 5e-3
         else:
-            R = 5e-3
-        v_rel = 2 / 9 * R ** 2 * g * (rho_l - rho_s) / (nu * rho_l) #vertical ice velocity relative to surrounding liquid
+            R = get_R
+        v_rel = stokes_velocity(R) #vertical ice velocity relative to surrounding liquid
         result = - rho_s / rho_l * phi * v_rel
     else:
         phi = get_phi(y, z)
-        if phi > 0:
-            R = get_R_direct(get_H(y))
+        if vary_radius:
+            if phi > 0:
+                R = get_R_direct_stokes(get_H(y))
+                # #finds R for jenkins velocity but is not currently being used
+                # v = stokes_velocity(R)
+                # v, R = fsolve(solve_v_R_system, [v, R], args=(get_H(y)))
+            else:
+                R = 5e-3
         else:
-            R = 5e-3
-        U = get_U(y)
+            R = get_R
         epsilon = 0.02
-        r_e = (3 / 2 * epsilon) ** (1 / 3) * R
-        U_c = .05 * (rho_l - rho_s) / rho_l * g * 2 * r_e / C_d
-        Re = get_reynolds(y)
+        Re = get_reynolds(stokes_velocity(R), R)
         local_drag = get_local_drag(Re)
         W_d = math.sqrt(2 * (rho_l - rho_s) / rho_l * g * 2 * epsilon * R / local_drag)
-        #print(U_c)
-        #print(str(1 - U ** 2 / U_c ** 2) + " " + str(W_d))
-        if U < U_c:
-            result = - rho_s / rho_l * phi * W_d * math.sqrt(1 - sin_theta ** 2) * (1 - U ** 2 / U_c ** 2)
-        else:
-            result = 0
+        # #uses critical velocity to determine if ice crystals able to precipitate
+        # #not currently working
+        # U = get_U(y)
+        # r_e = (3 / 2 * epsilon) ** (1 / 3) * R
+        # U_c = .05 * (rho_l - rho_s) / rho_l * g * 2 * r_e / C_d
+        # if U < U_c:
+        #     result = - rho_s / rho_l * phi * W_d * math.sqrt(1 - sin_theta ** 2) * (1 - U ** 2 / U_c ** 2)
+        # else:
+        #     result = 0
         result = - rho_s / rho_l * phi * W_d * math.sqrt(1 - sin_theta ** 2)
     return result
+
+#calculates max velocity according to Stokes drag formula
+def stokes_velocity(R):
+    return 2 / 9 * R ** 2 * g * (rho_l - rho_s) / (nu * rho_l)
+
+#calculates max velocity according to drag formula in Jenkins and Bombosch
+def jenkins_velocity(R, t_ice):
+    epsilon = t_ice/R
+    W_d = stokes_velocity(R) / 3 / epsilon
+    count = 0
+    while count < 5:
+        Re = get_reynolds(W_d, R)
+        local_drag = get_local_drag(Re)
+        W_d = math.sqrt(2 * (rho_l - rho_s) / rho_l * g * 2 * epsilon * R / local_drag)
+        count += 1
+    return W_d
+
+#uses Stokes drag formula to predict max crystal radius given plume thickness
+def get_R_direct_stokes(H):
+    cube = 9 / 2 * k_l * T_deficit * H * nu * rho_l / (L * g * t_ice * (rho_l - rho_s) * rho_s)
+    return cube ** (1/3)
 
 #calculates local drag coefficient used in Jenkins precipitation velocity
 def get_local_drag(Re):
@@ -268,12 +258,24 @@ def get_local_drag(Re):
     log_drag = 1.386 - .892 * log_Re + .111 * log_Re ** 2
     return 10 ** log_drag
 
-#calculates Reynolds number by dividing HU / kinematic viscosity
-def get_reynolds(y):
-    result = abs(y[0] / nu)
+#calculates local Reynolds number / kinematic viscosity
+def get_reynolds(v, R):
+    result = abs(2 * v * R / nu)
     return result
 
+#calculates max crystal radius given plume thickness and velocity
+def get_R_mean(H, v_sn):
+    return k_l * T_deficit * H / rho_s / L / t_ice / v_sn
+
+#systen of equations for radius and Jenkins drag velocity
+def solve_v_R_system(vect, H):
+    v, R = vect
+    func1 = jenkins_velocity(R, t_ice) - v
+    func2 = get_R_mean(H, v) - R
+    return [func1, func2]
+
 #returns velocity of ice sheet at given distance from grounding line
+#for calculating thickness of marine ice
 def get_sheet_v(s):
     if s < 100:
         m_per_y = 800 - 2 * s
@@ -304,10 +306,6 @@ def interfacial_system(vect, M, U, T, S, z):
     func1 = rho_l * L * M * abs(U) + rho_s * c_s * (T_i - T_s) * M * abs(U) - rho_l * c_l * St * abs(U) * (T - T_i)
     func2 = get_T_L(S_i, z) - T_i
     return [func1, func2]
-
-def get_R_direct(H):
-    cube = 9 / 2 * k_l * T_deficit * H * nu * rho_l / (L * g * t_ice * (rho_l - rho_s) * rho_s)
-    return cube ** (1/3)
 
 """
 defines each of the linear differential equations
@@ -521,12 +519,14 @@ def precipitation_arrays_from_y(s, y):
             ice_depths.append(ice_depth)
     return p_levels, ice_depths
 
+#given solutions of differential equations
+#creates array of ice crystal radius with Stokes drag
 def r_array_from_y(s, y):
     r_diff = []
     for (vect, s0) in zip(y, s):
         z = get_z(get_H(vect), s0)
         if get_phi(vect, z):
-            r = get_R_direct(get_H(vect))
+            r = get_R_direct_stokes(get_H(vect))
         else:
             r = 0
         r_diff.append(r)
@@ -639,6 +639,7 @@ def plot_dy4s(s, data, radii, precip_state, title):
     plt.legend()
     plt.show()
 
+#plots beginning at 400km for direct comparison with simplified plume
 def plot_while_frazil(s, data, title):
     s_cropped = []
     data_cropped = []
@@ -720,118 +721,118 @@ precip_type_count = 0
 my_precipitation = True
 fig_num = 0
 
-y = odeint(derivative, y0, s)
+# y = odeint(derivative, y0, s)
 
-H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff = basic_arrays_from_y(s, y)
-dy0, dy1, dy2, dy3, dy4 = derivative_arrays_from_y(s, y)
-p_levels, ice_depths = precipitation_arrays_from_y(s, y)
-r_diff = r_array_from_y(s, y)
-all_arrays = [H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff, p_levels, ice_depths, r_diff]
-all_titles = ["H", "U", "delta T", "delta rho", "phi", "precipitation", "accumulation", "radius"]
+# H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff = basic_arrays_from_y(s, y)
+# dy0, dy1, dy2, dy3, dy4 = derivative_arrays_from_y(s, y)
+# p_levels, ice_depths = precipitation_arrays_from_y(s, y)
+# r_diff = r_array_from_y(s, y)
+# all_arrays = [H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff, p_levels, ice_depths, r_diff]
+# all_titles = ["H", "U", "delta T", "delta rho", "phi", "precipitation", "accumulation", "radius"]
 
-for data, title in zip(all_arrays, all_titles):
-    plt.plot(s, data)
-    plt.title(title)
-    plt.show()
+# for data, title in zip(all_arrays, all_titles):
+#     plt.plot(s, data)
+#     plt.title(title)
+#     plt.show()
 
-# #while precip_type_count < 2:
-# while precip_type_count < 1:
-#     #radii = [.01e-3, .05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
-#     #radii = [.01e-3, .03e-3, .05e-3, .07e-3, .09e-3, .1e-3, .3e-3, .5e-3, .7e-3, .9e-3, 1e-3, 3e-3, 5e-3]
-#     #radii = np.linspace(.01e-3, 5e-3)
-#     radii = [.1e-3]
+while precip_type_count < 2:
+#while precip_type_count < 1:
+    #radii = [.01e-3, .05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
+    #radii = [.01e-3, .03e-3, .05e-3, .07e-3, .09e-3, .1e-3, .3e-3, .5e-3, .7e-3, .9e-3, 1e-3, 3e-3, 5e-3]
+    #radii = np.linspace(.01e-3, 5e-3)
+    radii = [.1e-3]
     
-#     all_H = []
-#     all_U = []
-#     all_del_T = []
-#     all_del_rho = []
-#     all_phi = []
-#     all_p = []
-#     all_ice_depths = []
-#     all_dy4 = []
-#     all_dy1 = []
-#     all_HU = []
-#     all_HU2 = []
-#     titles = ["H", "U", "del_T", "del_rho", "phi", "precipitation", "accumulation"]
+    all_H = []
+    all_U = []
+    all_del_T = []
+    all_del_rho = []
+    all_phi = []
+    all_p = []
+    all_ice_depths = []
+    all_dy4 = []
+    all_dy1 = []
+    all_HU = []
+    all_HU2 = []
+    titles = ["H", "U", "del_T", "del_rho", "phi", "precipitation", "accumulation"]
     
-#     count = 0
-#     while (count < len(radii)):
-#         get_R = radii[count]
-#         #defines distances along slope to record results
-#         y = odeint(derivative, y0, s)
-#         #print(y[len(y) - 1])
+    count = 0
+    while (count < len(radii)):
+        get_R = radii[count]
+        #defines distances along slope to record results
+        y = odeint(derivative, y0, s)
+        #print(y[len(y) - 1])
         
-#         H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff = basic_arrays_from_y(s, y)
-#         dy0, dy1, dy2, dy3, dy4 = derivative_arrays_from_y(s, y)
-#         p_levels, ice_depths = precipitation_arrays_from_y(s, y)
-#         HU_diff, HU2_diff = get_HU_array(s, y)
+        H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff = basic_arrays_from_y(s, y)
+        dy0, dy1, dy2, dy3, dy4 = derivative_arrays_from_y(s, y)
+        p_levels, ice_depths = precipitation_arrays_from_y(s, y)
+        HU_diff, HU2_diff = get_HU_array(s, y)
         
-#         all_arrays = [H_diff, U_diff, del_rho_diff, p_levels]
-#         all_titles = ["H", "U", "delta rho", "precipitation"]
+        all_arrays = [H_diff, U_diff, del_rho_diff, p_levels]
+        all_titles = ["H", "U", "delta rho", "precipitation"]
         
-#         for data, title in zip(all_arrays, all_titles):
-#             plot_while_frazil(s, data, title)
+        # for data, title in zip(all_arrays, all_titles):
+        #     plot_while_frazil(s, data, title)
         
-#         all_H.append(H_diff)
-#         all_U.append(U_diff)
-#         all_del_T.append(del_T_diff)
-#         all_del_rho.append(del_rho_diff)
-#         all_phi.append(phi_diff)
-#         all_p.append(p_levels)
-#         all_ice_depths.append(ice_depths)
-#         all_HU.append(HU_diff)
-#         all_HU2.append(HU2_diff)
-#         set_of_dy = [dy0, dy1, dy2, dy3, dy4]
-#         all_dy4.append(dy4)
-#         all_dy1.append(dy1)
+        all_H.append(H_diff)
+        all_U.append(U_diff)
+        all_del_T.append(del_T_diff)
+        all_del_rho.append(del_rho_diff)
+        all_phi.append(phi_diff)
+        all_p.append(p_levels)
+        all_ice_depths.append(ice_depths)
+        all_HU.append(HU_diff)
+        all_HU2.append(HU2_diff)
+        set_of_dy = [dy0, dy1, dy2, dy3, dy4]
+        all_dy4.append(dy4)
+        all_dy1.append(dy1)
         
-#         dy0_labels = ["total", "entrainment", "melting", "precipitation"]
-#         dy1_labels = ["total", "liquid buoyancy", "ice buoyancy", "drag"]
-#         dy2_labels = ["total", "ambient gradient", "melt density", "precipitated heat", "frazil heat"]
-#         dy3_labels = ["total", "ambient temp", "melt temp", "depth cooling", "interfacial temp", "latent precipitation", "latent frazil"]
-#         dy4_labels = ["total", "transport freezing", "salt freezing", "depth freezing", "ambient melting", "interfacial frazil", "latent precipitation", "heat transport", "volume precipitation"]
-#         dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
-#         all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
+        dy0_labels = ["total", "entrainment", "melting", "precipitation"]
+        dy1_labels = ["total", "liquid buoyancy", "ice buoyancy", "drag"]
+        dy2_labels = ["total", "ambient gradient", "melt density", "precipitated heat", "frazil heat"]
+        dy3_labels = ["total", "ambient temp", "melt temp", "depth cooling", "interfacial temp", "latent precipitation", "latent frazil"]
+        dy4_labels = ["total", "transport freezing", "salt freezing", "depth freezing", "ambient melting", "interfacial frazil", "latent precipitation", "heat transport", "volume precipitation"]
+        dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
+        all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
         
-#         # #plots all derivatives for given radius
-#         # for data, title, labels in zip(set_of_dy, dy_titles, all_dy_labels):
-#         #     plot_derivative(s, data, get_R, title, labels)
+        # #plots all derivatives for given radius
+        # for data, title, labels in zip(set_of_dy, dy_titles, all_dy_labels):
+        #     plot_derivative(s, data, get_R, title, labels)
         
-#         # #plots only derivative of U * phi
-#         # plot_derivative(s, dy4, get_R, "d(U phi)/ds", dy4_labels)
+        # #plots only derivative of U * phi
+        # plot_derivative(s, dy4, get_R, "d(U phi)/ds", dy4_labels)
         
-#         # #plots only derivative of HU^2
-#         # if my_precipitation:
-#         #     title = "Stokes Drag: "
-#         # else:
-#         #     title = "Jenkins Drag: "
-#         # plot_derivative(s, dy1, get_R, title + "d(HU^2)/ds", dy1_labels)
+        # #plots only derivative of HU^2
+        # if my_precipitation:
+        #     title = "Stokes Drag: "
+        # else:
+        #     title = "Jenkins Drag: "
+        # plot_derivative(s, dy1, get_R, title + "d(HU^2)/ds", dy1_labels)
         
-#         #iterates to next radius
-#         count += 1
+        #iterates to next radius
+        count += 1
     
-#     #plot_dy4s(s, all_dy4, radii, my_precipitation, "total dy4")
+    #plot_dy4s(s, all_dy4, radii, my_precipitation, "total dy4")
     
-#     all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi, all_p, all_ice_depths]
+    all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi, all_p, all_ice_depths]
     
-#     # #plots each of H, U, del_rho, del_T, phi, p, accumulation
-#     # #with variety of radii on same plot
-#     # for array_set, var_title in zip(all_arrays, titles):
-#     #     plot_multi_radius(s, array_set, radii, var_title)
+    # #plots each of H, U, del_rho, del_T, phi, p, accumulation
+    # #with variety of radii on same plot
+    # for array_set, var_title in zip(all_arrays, titles):
+    #     plot_multi_radius(s, array_set, radii, var_title)
     
-#     # #plots phi at specified indices as a function of radius
-#     # indices = [len(s) - 1, int(len(s) / 2), 3 * int(len(s) / 4)]
-#     # title = "phi as a function of radius: "
-#     # plot_phi_radii(radii, all_phi, my_precipitation, indices, title)
+    # #plots phi at specified indices as a function of radius
+    # indices = [len(s) - 1, int(len(s) / 2), 3 * int(len(s) / 4)]
+    # title = "phi as a function of radius: "
+    # plot_phi_radii(radii, all_phi, my_precipitation, indices, title)
     
-#     # #plots dy4 at specified indices as a function of radius
-#     # title = "dy4 as a function of radius: "
-#     # plot_phi_radii(radii, all_dy4, my_precipitation, indices, title)
+    # #plots dy4 at specified indices as a function of radius
+    # title = "dy4 as a function of radius: "
+    # plot_phi_radii(radii, all_dy4, my_precipitation, indices, title)
     
-#     # #plots dy1 at specified indices as a function of radius for comparison
-#     # title = "dy1 as a function of radius: "
-#     # plot_phi_radii(radii, all_dy1, my_precipitation, indices, title)
+    # #plots dy1 at specified indices as a function of radius for comparison
+    # title = "dy1 as a function of radius: "
+    # plot_phi_radii(radii, all_dy1, my_precipitation, indices, title)
     
-#     #switches from Stokes Drag to Jenkins and Bombosch formula and repeats graphs
-#     my_precipitation = False
-#     precip_type_count += 1
+    #switches from Stokes Drag to Jenkins and Bombosch formula and repeats graphs
+    my_precipitation = False
+    precip_type_count += 1
