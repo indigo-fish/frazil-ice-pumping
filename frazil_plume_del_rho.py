@@ -815,10 +815,10 @@ while precip_type_count < 2:
     
     all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi, all_p, all_ice_depths]
     
-    # #plots each of H, U, del_rho, del_T, phi, p, accumulation
-    # #with variety of radii on same plot
-    # for array_set, var_title in zip(all_arrays, titles):
-    #     plot_multi_radius(s, array_set, radii, var_title)
+    #plots each of H, U, del_rho, del_T, phi, p, accumulation
+    #with variety of radii on same plot
+    for array_set, var_title in zip(all_arrays, titles):
+        plot_multi_radius(s, array_set, radii, var_title)
     
     # #plots phi at specified indices as a function of radius
     # indices = [len(s) - 1, int(len(s) / 2), 3 * int(len(s) / 4)]
