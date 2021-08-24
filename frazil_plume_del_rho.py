@@ -53,6 +53,7 @@ t_ice = .05e-3 #constant ice crystal thickness
 my_precipitation = True #chooses between Stokes and Jenkins drag
 Jenkins_ambient = True #chooses between ideal and Amery ice shelf conditions
 vary_radius = True #chooses between fixed crystal radius and growing with plume
+simplified_plume = False #chooses whether or not to set small terms to zero after frazil formation
 
 #provides linear structure of density
 rho_l = 1028
@@ -316,8 +317,11 @@ def dy0_ds(y, z):
     U = get_U(y)
     e = E_0 * sin_theta * abs(U)
     m = get_M(get_T(y, z), get_S(y, z), z) * abs(U)
-    #need to figure out how to parameterize precipitation
     p = get_p(y, z)
+    if simplified_plume:
+        p = 0
+        if z > get_z(20, 400e3):
+            m = 0
     return [e + m + p, e, m, p]
 
 #derivative of H*U^2
@@ -329,7 +333,8 @@ def dy1_ds(y, z):
     liquid_buoyancy = g * sin_theta * H * delta_rho / rho_l
     ice_buoyancy = g * sin_theta * H * phi * (1 - rho_s / rho_l)
     drag = - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
-    #result = g * sin_theta * H * (phi * (1 - rho_s / rho_l) + delta_rho / rho_l) - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
+    if simplified_plume:
+        ice_buoyancy = 0
     result = liquid_buoyancy + ice_buoyancy + drag
     return [result, liquid_buoyancy, ice_buoyancy, drag]
 
@@ -347,9 +352,15 @@ def dy2_ds(y, z):
     melt_density = del_rho_eff / rho_l * m
     melt_density = beta_s * S_a * m
     T_eff = get_T_eff(T_i)
-    precip_heat = (beta_s * S_a - beta_T * (T_a - c_s / c_l * T_i)) * p - beta_T * (T_a - T_eff) * m
+    precip_heat = (beta_s * S_a - beta_T * (T_a + L / c_l - c_s / c_l * T_i)) * p - beta_T * (T_a - T_eff) * m
+    precip_heat = beta_s * S_a * p #this is temporary
     get_dy4 = dy4_ds(y, z)
-    phi_heat = beta_T * rho_s / rho_l * L / c_l * get_dy4[0]
+    H = get_H(y)
+    phi_heat = beta_T * rho_s / rho_l * L / c_l * get_dy4[0] * H
+    if simplified_plume:
+        phi_heat = 0
+        if z > get_z(20, 400e3):
+            melt_density = 0
     result = ambient_gradient + melt_density + precip_heat + phi_heat
     return [result, ambient_gradient, melt_density, precip_heat, phi_heat]
 
@@ -369,7 +380,13 @@ def dy3_ds(y, z):
     p_interfacial = c_s / c_l * T_i * p
     p_latent = - (L / c_l + T_m + lamda * z) * p
     get_dy4 = dy4_ds(y, z)
-    phi_latent = rho_s / rho_l * L / c_l * get_dy4[0]
+    H = get_H(y)
+    phi_latent = rho_s / rho_l * L / c_l * get_dy4[0] * H
+    if simplified_plume:
+        p_interfacial = 0
+        phi_latent = 0
+        if z > get_z(20, 400e3):
+            m_temp = 0
     result = e_temp + m_temp + depth_cooling + p_interfacial + p_latent + phi_latent
     return [result, e_temp, m_temp, depth_cooling, p_interfacial, p_latent, phi_latent]
 
@@ -390,17 +407,25 @@ def dy4_ds(y, z):
         T_a = get_T_a(z)
         S_a = get_S_a(z)
         get_dy0 = dy0_ds(y, z)
-        transport_freezing = (T_m + lamda * z) * get_dy0[0] * rho_l * c_l / L / rho_s
-        salt_ambient = - tau * (e * S_a) * rho_l * c_l / L / rho_s
-        salt_interfacial = - tau * (m * S_i - St_m * U * (S - S_i)) * rho_l * c_l / L / rho_s
-        depth_freezing = lamda * y[0] * sin_theta * rho_l * c_l / L / rho_s
-        ambient = - e * T_a * rho_l * c_l / L / rho_s
-        interfacial = - m * T_i * rho_l * c_l / L / rho_s
-        p_latent = - c_s / c_l * p * T_i * rho_l * c_l / L / rho_s
-        heat_transp = St * U * (T - T_i) * rho_l * c_l / L / rho_s
-        p_vol = rho_l * p / rho_s
-        sum = transport_freezing + salt_ambient + salt_interfacial + depth_freezing + ambient + interfacial + p_latent + heat_transp + p_vol
-        result = [sum, salt_interfacial, salt_ambient + ambient, depth_freezing + p_vol + transport_freezing, 0, interfacial, p_latent, heat_transp, 0]
+        H = get_H(y)
+        transport_freezing = (T_m + lamda * z) * get_dy0[0] * rho_l * c_l / L / rho_s / H
+        salt_ambient = - tau * (e * S_a) * rho_l * c_l / L / rho_s / H
+        salt_interfacial = - tau * (m * S_i - St_m * U * (S - S_i)) * rho_l * c_l / L / rho_s / H
+        depth_freezing = lamda * y[0] * sin_theta * rho_l * c_l / L / rho_s / H
+        ambient = - e * T_a * rho_l * c_l / L / rho_s / H
+        interfacial = - m * T_i * rho_l * c_l / L / rho_s / H
+        p_latent = - c_s / c_l * p * T_i * rho_l * c_l / L / rho_s / H
+        heat_transp = St * U * (T - T_i) * rho_l * c_l / L / rho_s / H
+        p_vol = rho_l * p / rho_s / H
+        if simplified_plume:
+            p_latent = 0
+            heat_transp = 0
+            transport_freezing = 0
+            if z > get_z(20, 400e3):
+                salt_interfacial = 0
+                interfacial = 0
+        res_sum = transport_freezing + salt_ambient + salt_interfacial + depth_freezing + ambient + interfacial + p_latent + heat_transp + p_vol
+        result = [res_sum, salt_interfacial, salt_ambient + ambient, depth_freezing + p_vol + transport_freezing, 0, interfacial, p_latent, heat_transp, 0]
     return result
 
 """
@@ -526,7 +551,7 @@ def r_array_from_y(s, y):
     for (vect, s0) in zip(y, s):
         z = get_z(get_H(vect), s0)
         if get_phi(vect, z):
-            r = get_R_direct_stokes(get_H(vect))
+            r = 1000 * get_R_direct_stokes(get_H(vect))
         else:
             r = 0
         r_diff.append(r)
@@ -544,11 +569,13 @@ def get_HU_array(s, y):
 
 #given array of vectors with elements corresponding to different radii
 #plots elements as a function of distance
-def plot_multi_radius(s, data, radii, title):
+def plot_multi_radius(s, data, radii, title, ylabel):
     for data_line, r_label in zip(data, radii):
-        plt.plot(s, data_line, label=str(r_label), marker='.')
+        plt.plot(s / 1000, data_line, label=(str(r_label * 1000) + " mm"))
     plt.title(title)
-    plt.legend()
+    plt.xlabel("Distance Along Ice Shelf (km)")
+    plt.ylabel(ylabel)
+    #plt.legend()
     plt.show()
 
 #given array of vectors with elements corresponding to terms in derivatives
@@ -651,6 +678,20 @@ def plot_while_frazil(s, data, title):
     plt.title(title)
     plt.show()
 
+def plot_radii(s, data, title, ylabel):
+    s_crop = []
+    r_crop = []
+    for s0, data0 in zip(s, data):
+        if data0 > 0:
+            s_crop.append(s0 / 1000)
+            r_crop.append(data0)
+    plt.plot(s_crop, r_crop)
+    plt.title(title)
+    plt.ylabel("Crystal Radius (mm)")
+    plt.title(title)
+    plt.xlabel("Distance Along Ice Shelf (km)")
+    plt.show()
+
 #sets initial distance along slope at which analytical solutions are used
 X0 = 0.01
 E0 = E_0 * sin_theta
@@ -735,12 +776,13 @@ fig_num = 0
 #     plt.title(title)
 #     plt.show()
 
-while precip_type_count < 2:
+while precip_type_count < 1:
 #while precip_type_count < 1:
     #radii = [.01e-3, .05e-3, .1e-3, .5e-3, 1e-3, 5e-3]
     #radii = [.01e-3, .03e-3, .05e-3, .07e-3, .09e-3, .1e-3, .3e-3, .5e-3, .7e-3, .9e-3, 1e-3, 3e-3, 5e-3]
     #radii = np.linspace(.01e-3, 5e-3)
     radii = [.1e-3]
+    #radii = [1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]
     
     all_H = []
     all_U = []
@@ -753,19 +795,22 @@ while precip_type_count < 2:
     all_dy1 = []
     all_HU = []
     all_HU2 = []
-    titles = ["H", "U", "del_T", "del_rho", "phi", "precipitation", "accumulation"]
+    all_r = []
+    titles = ["Plume Thickness", "Plume Velocity", "Temperature Deficit", "Density Deficit", "Solid Fraction", "Precipitation", "Accumulation", "Stokes Drag Crystal Radius"]
+    ylabels = ["Plume Thickness (m)", "Plume Velocity (m/s)", "Temperature Deficit (K)", "Density Deficit ($kg/m^3$)", "Solid Fraction", "Precipitation (m/s)", "Accumulation (m)", "Crystal Radius (m)"]
     
     count = 0
     while (count < len(radii)):
         get_R = radii[count]
         #defines distances along slope to record results
         y = odeint(derivative, y0, s)
-        #print(y[len(y) - 1])
+        print(y[len(y) - 1])
         
         H_diff, U_diff, del_T_diff, del_rho_diff, phi_diff = basic_arrays_from_y(s, y)
         dy0, dy1, dy2, dy3, dy4 = derivative_arrays_from_y(s, y)
         p_levels, ice_depths = precipitation_arrays_from_y(s, y)
         HU_diff, HU2_diff = get_HU_array(s, y)
+        r_diff = r_array_from_y(s, y)
         
         all_arrays = [H_diff, U_diff, del_rho_diff, p_levels]
         all_titles = ["H", "U", "delta rho", "precipitation"]
@@ -782,6 +827,7 @@ while precip_type_count < 2:
         all_ice_depths.append(ice_depths)
         all_HU.append(HU_diff)
         all_HU2.append(HU2_diff)
+        all_r.append(r_diff)
         set_of_dy = [dy0, dy1, dy2, dy3, dy4]
         all_dy4.append(dy4)
         all_dy1.append(dy1)
@@ -794,7 +840,7 @@ while precip_type_count < 2:
         dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
         all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
         
-        # #plots all derivatives for given radius
+        #plots all derivatives for given radius
         # for data, title, labels in zip(set_of_dy, dy_titles, all_dy_labels):
         #     plot_derivative(s, data, get_R, title, labels)
         
@@ -813,12 +859,15 @@ while precip_type_count < 2:
     
     #plot_dy4s(s, all_dy4, radii, my_precipitation, "total dy4")
     
-    all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi, all_p, all_ice_depths]
+    all_arrays = [all_H, all_U, all_del_T, all_del_rho, all_phi, all_p, all_ice_depths, all_r]
     
     #plots each of H, U, del_rho, del_T, phi, p, accumulation
     #with variety of radii on same plot
-    for array_set, var_title in zip(all_arrays, titles):
-        plot_multi_radius(s, array_set, radii, var_title)
+    for array_set, var_title, ylabel in zip(all_arrays, titles, ylabels):
+        var_title += " Along Ice Shelf"
+        plot_multi_radius(s, array_set, radii, var_title, ylabel)
+    
+    plot_radii(s, r_diff, titles[len(titles) - 1], ylabels[len(ylabels) - 1])
     
     # #plots phi at specified indices as a function of radius
     # indices = [len(s) - 1, int(len(s) / 2), 3 * int(len(s) / 4)]
