@@ -13,7 +13,8 @@ This one attempts to implement the simplified system of only 2 differential equa
 so it might also have to be substantially changed.
 
 Most other files were used for testing something rather than being the main experiment -
-radius_and_velocity.py is the most recent of these, which looks at the radius as a function of velocity (and radius as a function of plume width) for different drag types,
+galton_fenzi_depth.py creates a 5th-order polynomial describing the shape of the Amery Ice Shelf according to the Galton-Fenzi et al paper.
+radius_and_velocity.py is the next most recent of these, which looks at the radius as a function of velocity (and radius as a function of plume width) for different drag types,
 while stokes_and_jenkins_drags.py, done slightly earlier, looked at which of the hypothesized drag forces dominated.
 magorrian_wells_odes.py and magorrian_wells_with_pressure.py have the original versions of the code, replicating the Magorrian & Wells paper,
 which was duplicated and adapted to include frazil ice.
