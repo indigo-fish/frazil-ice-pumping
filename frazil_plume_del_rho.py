@@ -43,7 +43,7 @@ Ta_at_600 = -2.18 #end ambient temperature
 Sa_at_0 = 34.5 #start ambient salinity
 Sa_at_600 = 34.71 #end ambient salinity
 #theta = 0.1
-sin_theta = (D_at_600 - D)/600e3 #slope of ice shelf
+#sin_theta = (D_at_600 - D)/600e3 #slope of ice shelf
 U_T = 0 #tide velocity
 get_R = 0 #global variable for radius set by later code
 k_l = .569 #thermal conductivity
@@ -54,6 +54,7 @@ my_precipitation = True #chooses between Stokes and Jenkins drag
 Jenkins_ambient = True #chooses between ideal and Amery ice shelf conditions
 vary_radius = True #chooses between fixed crystal radius and growing with plume
 simplified_plume = False #chooses whether or not to set small terms to zero after frazil formation
+linear_ice = True
 
 #provides linear structure of density
 rho_l = 1028
@@ -229,6 +230,8 @@ def get_p(y, z):
         #     result = - rho_s / rho_l * phi * W_d * math.sqrt(1 - sin_theta ** 2) * (1 - U ** 2 / U_c ** 2)
         # else:
         #     result = 0
+        H = get_H(y)
+        sin_theta = get_sin_theta(z, H)
         result = - rho_s / rho_l * phi * W_d * math.sqrt(1 - sin_theta ** 2)
     return result
 
@@ -297,9 +300,50 @@ def get_sheet_v(s):
 def get_phi(y, z):
     return y[4] / get_U(y)
 
+#describes varying sin theta to allow calculation of non-linear z
+def get_sin_theta(z, H):
+    if linear_ice:
+        # s = fsolve(system_get_s, z / (D_at_600) * 600e3, args=(z))
+        # sin_theta = (get_z_ice(s + 5) - get_z_ice(s - 5)) / 10
+        sin_theta = (D_at_600 - D)/600e3
+    else:
+        s = fsolve(system_get_s, z / (D_at_600 - D) * 600e3, args=(z))
+        #need to figure out how to find sin_theta!
+        sin_theta = (D_at_600 - D)/600e3
+    return sin_theta
+
+def get_z_ice(s):
+    if linear_ice:
+        return D + s * (D_at_600 - D)/600e3
+    else:
+        depth = D
+        if s < 0:
+            depth += 0
+        elif s < 20e3:
+            depth += s * (-1800 + 2500) / 20e3
+        elif s < 120e3:
+            depth += (-1800 + 2500)
+            depth += (s - 20e3) * (-1000 + 1800) / 100e3
+        elif s < 210e3:
+            depth += (-1000 + 2500)
+            depth += (s - 120e3) * (-700 + 1000) / 90e3
+        elif s < 340e3:
+            depth += (-700 + 2500)
+            depth += (s - 210e3) * (-600 + 700) / 130e3
+        elif s < 580e3:
+            depth += (-600 + 2500)
+            depth += (s - 340e3) * (-200 + 600) / 240e3
+        else:
+            depth += 2500
+        return depth
+        
+
 #calculates depth at center of plume as a function of distance along shelf
 def get_z(H, s):
-    return D + s * sin_theta - H / 2
+    return get_z_ice(s) - H / 2
+
+def system_get_s(s, z):
+    return get_z_ice(s) - z
 
 #system of equations which is solved to find T_i and S_i, given M, U, T and S
 def interfacial_system(vect, M, U, T, S, z):
@@ -315,6 +359,8 @@ in terms of the variables which make it easier to solve
 #derivative of H*U
 def dy0_ds(y, z):
     U = get_U(y)
+    H = get_H(y)
+    sin_theta = get_sin_theta(z, H)
     e = E_0 * sin_theta * abs(U)
     m = get_M(get_T(y, z), get_S(y, z), z) * abs(U)
     p = get_p(y, z)
@@ -330,6 +376,7 @@ def dy1_ds(y, z):
     U = get_U(y)
     phi = get_phi(y, z)
     delta_rho = get_del_rho(y)
+    sin_theta = get_sin_theta(z, H)
     liquid_buoyancy = g * sin_theta * H * delta_rho / rho_l
     ice_buoyancy = g * sin_theta * H * phi * (1 - rho_s / rho_l)
     drag = - C_d * U * math.sqrt(U ** 2 + U_T ** 2)
@@ -343,6 +390,8 @@ def dy2_ds(y, z):
     U = get_U(y)
     del_rho_eff = get_rho_eff(y, z)
     m = get_M(get_T(y, z), get_S(y, z), z) * abs(U)
+    H = get_H(y)
+    sin_theta = get_sin_theta(z, H)
     drho_a_ds = get_d_rho_a_dz(z) * sin_theta
     S_a = get_S_a(z)
     T_a = get_T_a(z)
@@ -353,12 +402,11 @@ def dy2_ds(y, z):
     melt_density = beta_s * S_a * m
     T_eff = get_T_eff(T_i)
     precip_heat = (beta_s * S_a - beta_T * (T_a + L / c_l - c_s / c_l * T_i)) * p - beta_T * (T_a - T_eff) * m
-    precip_heat = beta_s * S_a * p #this is temporary
     get_dy4 = dy4_ds(y, z)
-    H = get_H(y)
     phi_heat = beta_T * rho_s / rho_l * L / c_l * get_dy4[0] * H
     if simplified_plume:
         phi_heat = 0
+        precip_heat = beta_s * S_a * p
         if z > get_z(20, 400e3):
             melt_density = 0
     result = ambient_gradient + melt_density + precip_heat + phi_heat
@@ -367,6 +415,8 @@ def dy2_ds(y, z):
 #derivative of H*U*delta_T
 def dy3_ds(y, z):
     U = get_U(y)
+    H = get_H(y)
+    sin_theta = get_sin_theta(z, H)
     e = E_0 * sin_theta * abs(U)
     del_T_a = get_del_T_a(z)
     m = get_M(get_T(y, z), get_S(y, z), z) * abs(U)
@@ -402,6 +452,8 @@ def dy4_ds(y, z):
         S_i = get_S_i(y, z)
         U = get_U(y)
         p = get_p(y, z)
+        H = get_H(y)
+        sin_theta = get_sin_theta(z, H)
         e = E_0 * sin_theta * abs(U)
         m = get_M(T, S, z) * abs(U)
         T_a = get_T_a(z)
@@ -583,7 +635,7 @@ def plot_multi_radius(s, data, radii, title, ylabel):
 def plot_derivative(s, data, radius, title, labels):
     plt.plot(s, data)
     plt.legend(labels)
-    title += " at radius " + str(radius)
+    #title += " at radius " + str(radius)
     plt.title(title)
     plt.legend(labels)
     plt.show()
@@ -694,8 +746,10 @@ def plot_radii(s, data, title, ylabel):
 
 #sets initial distance along slope at which analytical solutions are used
 X0 = 0.01
-E0 = E_0 * sin_theta
-z0 = D + X0 * sin_theta
+z0 = get_z(0, 0.01)
+sin_theta0 = get_sin_theta(z0, 0)
+E0 = E_0 * sin_theta0
+
 
 #solves (simplified) analytic system of equations for M, T, S
 S_a0 = get_S_a(z0)
@@ -709,7 +763,7 @@ allowing use of full versions of equations 29, 30 in Magorrian Wells
 H0 = 2 / 3 * (E0 + M0) * X0
 del_T0 = T0 - get_T_L(S0, z0)
 del_rho0 = - rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
-U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta * X0)
+U0 = math.sqrt(2 * (E0 + M0 / (3 * C_d + 4 * (E0 + M0)))) * math.sqrt(del_rho0 / rho_l * g * sin_theta0 * X0)
 T_i0, S_i0 = fsolve(interfacial_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
 
 """
@@ -731,7 +785,7 @@ while i < 40:
     del_rho0 = -1 * rho_l * (beta_s * (S0 - S_a0) - beta_T * (T0 - T_a0))
     T_eff = get_T_eff(T_i0)
     rho_eff = rho_l * (beta_s * (S_a0 - S_s) - beta_T * (T_a0 - get_T_eff(T_i0)))
-    U0 = math.sqrt((2 * ((E0 + M0) / (3 * C_d + 4 * (E0 + M0))) * del_rho0 / rho_l * g * sin_theta * X0))
+    U0 = math.sqrt((2 * ((E0 + M0) / (3 * C_d + 4 * (E0 + M0))) * del_rho0 / rho_l * g * sin_theta0 * X0))
     T_i0, S_i0 = fsolve(interfacial_system, [get_T_L(S_a0, z0), S_a0], args = (M0, U0, T0, S0, z0))
     i_vals.append(i)
     del_T_vals.append(del_T0)
@@ -812,6 +866,14 @@ while precip_type_count < 1:
         HU_diff, HU2_diff = get_HU_array(s, y)
         r_diff = r_array_from_y(s, y)
         
+        z_diff = []
+        for s0 in s:
+            z_diff.append(get_z_ice(s0))
+        
+        plt.show()
+        plt.plot(s, z_diff)
+        plt.show()
+        
         all_arrays = [H_diff, U_diff, del_rho_diff, p_levels]
         all_titles = ["H", "U", "delta rho", "precipitation"]
         
@@ -837,10 +899,10 @@ while precip_type_count < 1:
         dy2_labels = ["total", "ambient gradient", "melt density", "precipitated heat", "frazil heat"]
         dy3_labels = ["total", "ambient temp", "melt temp", "depth cooling", "interfacial temp", "latent precipitation", "latent frazil"]
         dy4_labels = ["total", "transport freezing", "salt freezing", "depth freezing", "ambient melting", "interfacial frazil", "latent precipitation", "heat transport", "volume precipitation"]
-        dy_titles = ["d(HU)/ds", "d(HU^2)/ds", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
+        dy_titles = ["d(HU)/ds", "Contributions to Momentum Conservation", "d(HU del_rho/rho_l)/ds", "d(HU del_T)/ds", "d(U phi)/ds"]
         all_dy_labels = [dy0_labels, dy1_labels, dy2_labels, dy3_labels, dy4_labels]
         
-        #plots all derivatives for given radius
+        # #plots all derivatives for given radius
         # for data, title, labels in zip(set_of_dy, dy_titles, all_dy_labels):
         #     plot_derivative(s, data, get_R, title, labels)
         
